@@ -1,0 +1,138 @@
+name: Build applications
+
+on:
+  workflow_call:
+    inputs:
+      signed-release:
+        type: boolean
+        default: false
+      build-ref:
+        type: string
+        default: ''
+    secrets:
+      AHUCM_SIGNING_STORE_B64:
+        required: false
+      AHUCM_SIGNING_PASSWORD:
+        required: false
+      AHUCM_SIGNING_ALIAS:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.build-ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-37.2 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Validate version and source
+        run: |
+          python3 tools/ci/check_version.py
+          chmod +x gradlew
+          node --test androidApp/src/test/node/managed-sync.test.cjs
+      - name: Test core and Android
+        run: ./gradlew :core:test :androidApp:testDebugUnitTest --console=plain
+      - name: Build debug APK
+        if: ${{ !inputs.signed-release }}
+        run: |
+          ./gradlew :androidApp:assembleDebug --console=plain
+          python3 tools/ci/package_build.py android --variant debug
+      - name: Restore release signing
+        if: inputs.signed-release
+        env:
+          AHUCM_SIGNING_STORE_B64: ${{ secrets.AHUCM_SIGNING_STORE_B64 }}
+          AHUCM_KEYSTORE_PASSWORD: ${{ secrets.AHUCM_SIGNING_PASSWORD }}
+          AHUCM_KEYSTORE_ALIAS: ${{ secrets.AHUCM_SIGNING_ALIAS }}
+        run: python3 tools/ci/restore_signing.py
+      - name: Build signed release APK
+        if: inputs.signed-release
+        env:
+          AHUCM_KEYSTORE_PASSWORD: ${{ secrets.AHUCM_SIGNING_PASSWORD }}
+          AHUCM_KEYSTORE_ALIAS: ${{ secrets.AHUCM_SIGNING_ALIAS }}
+        run: |
+          ./gradlew :androidApp:assembleRelease --console=plain
+          python3 tools/ci/package_build.py android --variant release
+      - name: Verify APK signature
+        run: '"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose outputs/*.apk'
+      - name: Verify release signing identity
+        if: inputs.signed-release
+        run: python3 tools/ci/verify_apk_signer.py outputs/*.apk
+      - name: Upload Android package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-${{ inputs.signed-release && 'release' || 'debug' }}
+          path: |
+            outputs/*.apk
+            outputs/SHA256SUMS-Android.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-test-results
+          path: |
+            core/build/reports/tests/
+            androidApp/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove temporary signing key
+        if: always() && inputs.signed-release
+        run: rm -f "$RUNNER_TEMP/ahucm-release.p12"
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.build-ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Test desktop and create portable application
+        run: .\gradlew.bat -PandroidEnabled=false :core:test :composeApp:desktopTest :composeApp:createDistributable --console=plain
+      - name: Package Windows application and runtime
+        run: python tools/ci/package_build.py windows
+      - name: Upload Windows package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-${{ inputs.signed-release && 'release' || 'debug' }}
+          path: |
+            outputs/*.zip
+            outputs/SHA256SUMS-Windows.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload desktop test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-test-results
+          path: |
+            core/build/reports/tests/
+            composeApp/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
