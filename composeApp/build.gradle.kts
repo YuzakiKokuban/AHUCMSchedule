@@ -25,7 +25,7 @@ kotlin {
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.desktop.uiTestJUnit4)
                 implementation(kotlin("test-junit"))
-                implementation("org.apache.poi:poi:5.4.1")
+                implementation("org.apache.poi:poi:5.5.1")
             }
         }
     }
