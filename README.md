@@ -33,7 +33,7 @@
 
 ## 发布包
 
-`outputs` 内的 Android APK 自 0.3.2 起为 release 签名包（APK Signature Scheme v2，签名密钥位于本地 `androidApp/keystore/`，与口令一样不入库、需离线备份）；签名与旧调试包不同，手机上装过旧版须先卸载再安装。Windows ZIP 包含运行环境，解压后运行 `AHUCMSchedule.exe`，不要只复制 EXE；发布包与 `SHA256SUMS.txt`、`使用说明.txt` 同目录。
+正式 Release 提供固定签名的 Android APK 和带运行环境的 Windows ZIP；密钥及口令不入库，需另外离线备份。正式包与旧调试包签名不同，切换时请按 Release 说明处理。Windows 解压完整 ZIP 后运行 `AHUCMSchedule.exe`；下载页同时提供 `SHA256SUMS.txt`。
 
 签名配置读取忽略提交的 `local.properties` 中的 `ahucm.release.*` 项，缺失时 release 构建回退为调试签名，保证干净检出仍可构建：
 
@@ -101,7 +101,7 @@ miuix: https://github.com/compose-miuix-ui/miuix （Apache-2.0）
 版本号统一位于 `version.properties`。Android 的 `versionCode` 必须在新版本递增；Android 与 Windows 共用 `versionName`。
 
 - 向 `main` 推送、提交 Pull Request 或手动运行 CI：执行核心、Android、Windows 界面及小爱驱动测试，生成调试 APK、带 Java 运行环境的 Windows ZIP 和校验文件。
-- 创建并推送与版本号一致的标签（例如 `v0.3.2`）：再次构建并使用固定发布签名生成正式 APK，校验两个平台产物后创建草稿 Release。检查草稿附件和说明后在 GitHub 发布。
+- 创建并推送与版本号一致的标签（例如 `v0.4.0`）：再次构建并使用固定发布签名生成正式 APK，校验两个平台产物后创建草稿 Release。检查草稿附件和说明后在 GitHub 发布。
 - Release 工作流也支持手动重试已有标签；已存在的 Release 不会被静默覆盖。
 - Actions 依赖固定到提交 SHA；Pull Request 默认只读权限，正式签名不用于 PR 构建。
 

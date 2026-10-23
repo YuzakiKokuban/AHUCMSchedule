@@ -1,9 +1,10 @@
-安徽中医药大学课表应用，支持 Android 和 Windows。
+安中课表首个公开正式版本，支持 Android 和 Windows。
 
 - 使用 miuix Monet 界面；Android 图标支持系统主题取色。
 - 官方教务课表、作息和调课通知同步；账号及会话本地加密保存。
 - Android 系统日历同步、现代 libxposed API 102 小爱课表自动管理。
 - 小爱课程随机配色，同名课程及后续更新保留颜色，写入后读回验证。
+- 合并 Compose / Foundation、桌面协程、JSON 序列化和 jsoup 依赖更新；正式发布前重新执行两端完整测试和构建。
 
 Android 下载 `.apk`；Windows 解压完整 `.zip` 后运行 `AHUCMSchedule.exe`，无需另装 Java。
 
@@ -12,3 +13,5 @@ Android 下载 `.apk`；Windows 解压完整 `.zip` 后运行 `AHUCMSchedule.exe
 
 `SHA256SUMS.txt` 提供两个安装包的 SHA-256 校验值。在线同步取决于学校服务及有效登录；
 小爱自动管理需支持 API 102 的框架，启用本应用并勾选小爱助手。
+
+验证范围：小爱自动写入已完成真机读回验证；Monet 图标资源已通过编译，启动器实际显示仍待真机复核。学校发生真实调课后的自动覆盖需待实际变更验证。
