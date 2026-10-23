@@ -1,4 +1,4 @@
-﻿import java.util.Properties
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -66,7 +66,7 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation(project(":core"))
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("org.jetbrains.compose.foundation:foundation:1.12.0")
+    implementation("org.jetbrains.compose.foundation:foundation:1.12.2")
     implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
                 implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
