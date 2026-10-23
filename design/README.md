@@ -100,8 +100,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File design\tools\build-logo.ps1
 
 流程：`build_logo.py spec` 生成 SVG/矢量 XML 与无头浏览器页面 → `render.ps1` 用
 Microsoft Edge 栅格化 → `build_logo.py export` 生成 PNG、ICO、Android mipmap、
-组合标志与预览图。依赖 Windows 自带微软雅黑 / 等线字体，以及 DSH 内置 Python
-（Pillow）。所有几何参数集中在 `design/tools/logo_spec.py`，改颜色或间距后重跑即可。
+组合标志与预览图。依赖 Windows 自带微软雅黑 / 等线字体，以及已安装 Pillow 的 Python 3。所有几何参数集中在 `design/tools/logo_spec.py`，改颜色或间距后重跑即可。
 同一生成器也生成版本化配色资源及 adaptive / monochrome 声明，重新生成会保留 Monet 适配。
 
 ## 使用约束
