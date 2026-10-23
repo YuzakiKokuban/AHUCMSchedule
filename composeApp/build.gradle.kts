@@ -17,7 +17,7 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
                 implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
             }
         }
         getByName("desktopTest") {
