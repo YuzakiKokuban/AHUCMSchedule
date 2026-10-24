@@ -13,7 +13,7 @@ kotlin {
             kotlin.srcDir("src/jvmSharedMain/kotlin")
             dependencies {
                 implementation(project(":core"))
-                implementation("net.java.dev.jna:jna-platform:5.18.1")
+                implementation("net.java.dev.jna:jna-platform:5.19.1")
                 implementation(compose.desktop.currentOs)
                 implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
                 implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
@@ -25,7 +25,7 @@ kotlin {
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.desktop.uiTestJUnit4)
                 implementation(kotlin("test-junit"))
-                implementation("org.apache.poi:poi:5.4.1")
+                implementation("org.apache.poi:poi:5.5.1")
             }
         }
     }
