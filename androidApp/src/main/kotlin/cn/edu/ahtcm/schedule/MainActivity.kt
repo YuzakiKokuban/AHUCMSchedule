@@ -41,6 +41,29 @@ class MainActivity : ComponentActivity() {
             override val aboutAvailable = true
             override val widgetAvailable = true
             override fun addWidget() {
+                // HyperOS/MIUI only show the widget confirmation after the app
+                // holds the launcher's normal "install widget/shortcut"
+                // permissions. They are granted at install time, but a user (or
+                // an OEM cleaner) can still revoke them later, so check first
+                // and point at the permission page instead of pinning silently.
+                val required = listOf(
+                    "com.miui.home.launcher.permission.INSTALL_WIDGET",
+                    "com.android.launcher.permission.INSTALL_SHORTCUT",
+                )
+                val denied = required.filter { permission ->
+                    val defined = runCatching { packageManager.getPermissionInfo(permission, 0) }.isSuccess
+                    defined && checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                if (denied.isNotEmpty()) {
+                    model.report("请先允许「桌面快捷方式」权限，再创建桌面小组件", true)
+                    val opened = runCatching {
+                        startActivity(android.content.Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", packageName))
+                    }.isSuccess
+                    if (!opened) runCatching {
+                        startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
+                    }
+                    return
+                }
                 val manager = android.appwidget.AppWidgetManager.getInstance(this@MainActivity)
                 val requested = manager.isRequestPinAppWidgetSupported &&
                     manager.requestPinAppWidget(android.content.ComponentName(this@MainActivity, TodayScheduleWidget::class.java), null, null)

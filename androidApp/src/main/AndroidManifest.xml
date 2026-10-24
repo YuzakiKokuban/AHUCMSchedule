@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- HyperOS/MIUI launchers require launcher-declared normal permissions
+         before they accept a programmatic widget pin (requestPinAppWidget). -->
+    <uses-permission android:name="com.miui.home.launcher.permission.INSTALL_WIDGET" />
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+    <uses-permission android:name="android.permission.INSTALL_SHORTCUT" />
     <queries><package android:name="com.miui.voiceassist" /></queries>
     <application android:name=".ScheduleApplication" android:allowBackup="false" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:label="岐黄课表" android:description="@string/module_description" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false" android:supportsRtl="true">
         <receiver android:name=".widget.TodayScheduleWidget" android:exported="false" android:label="@string/widget_label">

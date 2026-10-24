@@ -344,9 +344,13 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
             Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
                 Spacer(Modifier.height(8.dp))
                 if (message != null) {
+                    // Follow the theme's container/content pair so the banner keeps
+                    // readable contrast in dark mode and with Monet palettes.
+                    val bannerBackground = if (failure) MiuixTheme.colorScheme.errorContainer else MiuixTheme.colorScheme.primaryContainer
+                    val bannerContent = if (failure) MiuixTheme.colorScheme.onErrorContainer else MiuixTheme.colorScheme.onPrimaryContainer
                     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .background(if (failure) Color(0xFFFFE8E2) else Color(0xFFE2EEE5)).padding(14.dp)) {
-                        Text(message!!, fontSize = 13.sp, color = if (failure) Color(0xFF9D3829) else Ink)
+                        .background(bannerBackground).padding(14.dp)) {
+                        Text(message!!, fontSize = 13.sp, color = bannerContent)
                     }
                     Spacer(Modifier.height(12.dp))
                 }
