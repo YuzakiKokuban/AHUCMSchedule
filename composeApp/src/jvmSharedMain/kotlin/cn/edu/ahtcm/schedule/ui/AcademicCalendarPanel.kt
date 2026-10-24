@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -33,6 +36,7 @@ internal fun AcademicCalendarPanel(
 ) {
     val colors = MiuixTheme.colorScheme
     val layout = LocalAppLayout.current
+    val motionTravel = with(LocalDensity.current) { 80.dp.roundToPx() }
     val months = remember(snapshot) { snapshot?.days.orEmpty().map { YearMonth.from(LocalDate.parse(it.date)) }.distinct().sorted() }
     var shownMonth by rememberSaveable(term?.code) { mutableStateOf(YearMonth.from(today).toString()) }
     val month = months.firstOrNull { it.toString() == shownMonth } ?: months.firstOrNull()
@@ -60,16 +64,19 @@ internal fun AcademicCalendarPanel(
             if (!authenticated) TextButton("前往连接教务", onConnect)
         } else Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val twoMonths = maxWidth >= 720.dp && month < months.last()
-                    if (twoMonths || !layout.tallTablet || month == months.last()) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        AcademicMonthGrid(snapshot, month, today, selectedDate, { selectedDate = it.date }, Modifier.weight(1f), twoMonths)
-                        if (twoMonths) AcademicMonthGrid(snapshot, month.plusMonths(1), today, selectedDate, { selectedDate = it.date }, Modifier.weight(1f), true)
-                    }
-                    if (!twoMonths && layout.tallTablet && month < months.last()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            AcademicMonthGrid(snapshot, month, today, selectedDate, { selectedDate = it.date }, Modifier.fillMaxWidth(), false)
-                            AcademicMonthGrid(snapshot, month.plusMonths(1), today, selectedDate, { selectedDate = it.date }, Modifier.fillMaxWidth(), true)
+                AnimatedContent(targetState = month, modifier = Modifier.fillMaxWidth().clipToBounds(),
+                    transitionSpec = { directionalSlide(targetState > initialState, motionTravel) }, label = "calendar-month") { pageMonth ->
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val twoMonths = maxWidth >= 720.dp && pageMonth < months.last()
+                        if (twoMonths || !layout.tallTablet || pageMonth == months.last()) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            AcademicMonthGrid(snapshot, pageMonth, today, selectedDate, { selectedDate = it.date }, Modifier.weight(1f), twoMonths)
+                            if (twoMonths) AcademicMonthGrid(snapshot, pageMonth.plusMonths(1), today, selectedDate, { selectedDate = it.date }, Modifier.weight(1f), true)
+                        }
+                        if (!twoMonths && layout.tallTablet && pageMonth < months.last()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                AcademicMonthGrid(snapshot, pageMonth, today, selectedDate, { selectedDate = it.date }, Modifier.fillMaxWidth(), false)
+                                AcademicMonthGrid(snapshot, pageMonth.plusMonths(1), today, selectedDate, { selectedDate = it.date }, Modifier.fillMaxWidth(), true)
+                            }
                         }
                     }
                 }

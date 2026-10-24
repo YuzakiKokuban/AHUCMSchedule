@@ -77,9 +77,11 @@ class AboutActivity : ComponentActivity() {
                                 Spacer(Modifier.height(12.dp))
                                 TextButton("检查更新", { model.checkUpdate() }, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
                                 if (state.release != null && !state.ready) {
+                                    Spacer(Modifier.height(12.dp))
                                     TextButton("下载更新", { model.download() }, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
                                 }
                                 if (state.ready) {
+                                    Spacer(Modifier.height(12.dp))
                                     TextButton("安装更新", {
                                         scope.launch {
                                             try {

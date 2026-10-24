@@ -56,6 +56,7 @@ class SyncGate {
 
 private data class AppDestination(val page: Int, val label: String)
 private val destinations = listOf(AppDestination(0, "我的课表"), AppDestination(3, "校历"), AppDestination(1, "调课通知"), AppDestination(2, "连接教务"))
+internal fun navigationPosition(page: Int): Int = destinations.indexOfFirst { it.page == page }.also { require(it >= 0) }
 
 @Composable
 internal fun AdaptiveAppScaffold(

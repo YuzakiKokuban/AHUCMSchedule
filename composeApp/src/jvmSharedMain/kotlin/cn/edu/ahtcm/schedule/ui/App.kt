@@ -28,6 +28,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -327,6 +329,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
         }
     }
     val theme = remember { ThemeController(ColorSchemeMode.MonetSystem) }
+    val motionTravel = with(LocalDensity.current) { 80.dp.roundToPx() }
     MiuixTheme(controller = theme) {
         AdaptiveAppScaffold(desktop = platform.desktop, page = page, onNavigate = { page = it },
             status = if (authenticated) "已连接教务 · 前台自动同步" else "离线查看", topBar = {
@@ -345,11 +348,9 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-                AnimatedContent(targetState = page, modifier = Modifier.weight(1f).fillMaxWidth(),
+                AnimatedContent(targetState = page, modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds(),
                     transitionSpec = {
-                        val direction = if (targetState > initialState) 1 else -1
-                        (fadeIn(tween(200)) + slideInHorizontally(tween(240)) { direction * it / 12 }) togetherWith
-                            (fadeOut(tween(140)) + slideOutHorizontally(tween(240)) { -direction * it / 12 })
+                        directionalSlide(navigationPosition(targetState) > navigationPosition(initialState), motionTravel)
                     }, label = "page") { destination ->
                   pageStateHolder.SaveableStateProvider(destination) {
                   Column(Modifier.fillMaxSize()) {
@@ -377,11 +378,9 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             Text(if (current.source == "school") "上次教务同步 · $formatted${if (!authenticated) "  ／  请登录检查更新" else ""}" else "文件导入 · $formatted  ／  请同步确认最新安排", fontSize = 12.sp, color = Muted)
                             if (current.periods.isEmpty() && !LocalAppLayout.current.shortWindow) Text("作息时间待同步", fontSize = 11.sp, color = Muted)
                             Spacer(Modifier.height(if (LocalAppLayout.current.shortWindow) 2.dp else 8.dp))
-                            AnimatedContent(targetState = monday, modifier = Modifier.weight(1f),
+                            AnimatedContent(targetState = monday, modifier = Modifier.weight(1f).clipToBounds(),
                                 transitionSpec = {
-                                    val direction = if (targetState > initialState) 1 else -1
-                                    (slideInHorizontally(tween(280)) { direction * it / 6 } + fadeIn(tween(220))) togetherWith
-                                        (slideOutHorizontally(tween(280)) { -direction * it / 6 } + fadeOut(tween(180)))
+                                    directionalSlide(targetState > initialState, motionTravel)
                                 }, label = "week") { shownMonday ->
                                 WeekBoard(current, shownMonday, today, Modifier.fillMaxSize())
                             }
@@ -474,7 +473,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
             }
         }
     WindowDialog(show = pickingTerm, title = "选择学期", onDismissRequest = { pickingTerm = false }) {
-        Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             terms.forEach { term ->
                 TextButton(term.label, {
                     pickingTerm = false
