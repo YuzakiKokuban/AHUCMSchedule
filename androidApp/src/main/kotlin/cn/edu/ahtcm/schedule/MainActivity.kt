@@ -282,12 +282,11 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     }
     private fun submitModule(snapshot: ScheduleSnapshot, owner: String, force: Boolean) {
         val payload = XiaoAiExport.payload(snapshot,owner)
-        val key = "module-revision:$owner:${snapshot.termCode}"
-        if(!force && prefs.getString(key,null)==payload.revision) { refreshModuleStatus(); return }
+        // Even unchanged school data needs a host recheck after week rollover or
+        // manual edits. The provider preserves active jobs and verifies applied ones.
         val reply = context.contentResolver.call(syncUri,"apply",null, Bundle().apply { putString("payload",XiaoAiExport.json(payload));putBoolean("resume",force) })
             ?: error("missing_module_receipt")
         check(reply.getInt("schema")==1 && reply.getString("owner")==owner && reply.getString("termCode")==snapshot.termCode && reply.getString("revision")==payload.revision)
-        prefs.edit().putString(key,payload.revision).apply()
         showModuleState(reply)
         if(reply.getString("state")!="applied" && foreground.value) {
             io.launch(Dispatchers.Main) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("voiceassist://aiweb/?source=widget&flag=268468224&url=https%3A%2F%2Fi.ai.mi.com%2Fh5%2Fprecache%2Fai-schedule%2F")).setPackage("com.miui.voiceassist").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }

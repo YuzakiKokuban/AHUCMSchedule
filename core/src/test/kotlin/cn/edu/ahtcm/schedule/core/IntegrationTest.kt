@@ -6,6 +6,15 @@ import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
 class IntegrationTest {
+    @Test fun `xiaoai counts day parts from school start times and exports every period`() {
+        val starts = listOf("08:30","09:20","10:10","11:00","14:00","14:50","15:40","16:30","17:20","18:00","19:00","19:50","20:40","21:30")
+        val periods = starts.mapIndexed { index, start -> ClassPeriod(index + 1, start, java.time.LocalTime.parse(start).plusMinutes(40).toString()) }
+        val timer = XiaoAiExport.payload(snapshot().copy(periods=periods.reversed()), "a".repeat(64)).timer
+        assertEquals(4,timer.forenoon)
+        assertEquals(5,timer.afternoon)
+        assertEquals(5,timer.night)
+        assertEquals(periods.map { XiaoAiSection(it.section,it.start,it.end) },timer.sections)
+    }
     private fun snapshot(sections: List<Int> = listOf(1,2,5,6)) = ScheduleSnapshot("202601", "2026-2027-1", "2026-08-31", "2026-10-22T14:00:00Z", listOf(Lesson("护理,实验;课", "实验", "教师", "教室\nA101", "内容", "2026-10-19", 8, sections)), periods=(1..14).map { ClassPeriod(it, "%02d:00".format(it+6), "%02d:40".format(it+6)) })
 
     @Test fun `calendar splits discontinuous periods and uses actual Shanghai timestamps and stable IDs`() {

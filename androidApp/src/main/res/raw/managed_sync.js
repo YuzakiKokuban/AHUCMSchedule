@@ -25,13 +25,14 @@
  }
  function settingsFor(p) {
   const t=p.timer;
-  return {presentWeek:Math.max(1,Math.floor((Date.now()-Number(t.startSemester))/604800000)+1),totalWeek:t.totalWeek,isWeekend:t.showWeekend?1:0,morningNum:t.forenoon,afternoonNum:t.afternoon,nightNum:t.night,weekStart:t.startWithSunday?7:1,speak:0,startSemester:JSON.stringify(Number(t.startSemester)),school:'{}',extend:JSON.stringify({startSemester:Number(t.startSemester)}),sections:JSON.stringify(t.sections.map(s=>({i:s.section,s:s.startTime,e:s.endTime})))};
+  return {presentWeek:Math.min(t.totalWeek+1,Math.max(1,Math.floor((Date.now()-Number(t.startSemester))/604800000)+1)),totalWeek:t.totalWeek,isWeekend:t.showWeekend?1:0,morningNum:t.forenoon,afternoonNum:t.afternoon,nightNum:t.night,weekStart:t.startWithSunday?7:1,speak:0,startSemester:JSON.stringify(Number(t.startSemester)),school:'{}',extend:JSON.stringify({startSemester:Number(t.startSemester)}),sections:JSON.stringify(t.sections.map(s=>({i:s.section,s:s.startTime,e:s.endTime})))};
  }
  function sameSettings(actual,p) {
   try {
    const wanted=settingsFor(p), rows=JSON.parse(actual.sectionTimes||actual.sections);
    const normalize=items=>items.map(s=>[Number(s.i),s.s,s.e]).sort((a,b)=>a[0]-b[0]);
-   return ['totalWeek','isWeekend','morningNum','afternoonNum','nightNum','weekStart'].every(k=>Number(actual[k])===Number(wanted[k]))&&Number(String(actual.startSemester).replace(/"/g,''))===Number(p.timer.startSemester)&&JSON.stringify(normalize(rows))===JSON.stringify(normalize(JSON.parse(wanted.sections)));
+   const extend=JSON.parse(actual.extend||'{}');
+   return ['presentWeek','totalWeek','isWeekend','morningNum','afternoonNum','nightNum','weekStart'].every(k=>Number(actual[k])===Number(wanted[k]))&&Number(extend.startSemester)===Number(p.timer.startSemester)&&Number(String(actual.startSemester).replace(/"/g,''))===Number(p.timer.startSemester)&&JSON.stringify(normalize(rows))===JSON.stringify(normalize(JSON.parse(wanted.sections)));
   } catch(e) {return false;}
  }
  async function run(job,request,checkpoint) {

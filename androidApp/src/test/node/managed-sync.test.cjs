@@ -47,6 +47,51 @@ test('server readback compares section values regardless of JSON key order',()=>
  const s=driver.settingsFor(payload);s.sectionTimes=JSON.stringify([{e:'09:10',i:1,s:'08:30'}]);
  assert.equal(driver.sameSettings(s,payload),true);
 });
+
+test('readback rejects a stale current week and the semester date used by the host UI',()=>{
+ const s=driver.settingsFor(payload);
+ assert.equal(driver.sameSettings({...s,presentWeek:s.presentWeek-1},payload),false);
+ assert.equal(driver.sameSettings({...s,extend:JSON.stringify({startSemester:0})},payload),false);
+});
+
+test('current week changes at Shanghai Monday midnight and follows host term boundaries',()=>{
+ const now=Date.now;
+ try {
+  for(const [date,week] of [['2026-08-30T23:59:59+08:00',1],['2026-08-31T00:00:00+08:00',1],['2026-10-25T23:59:59+08:00',8],['2026-10-26T00:00:00+08:00',9],['2027-08-01T00:00:00+08:00',21]]) {
+   Date.now=()=>Date.parse(date);
+   assert.equal(driver.settingsFor(payload).presentWeek,week,date);
+  }
+ }finally{Date.now=now;}
+});
+
+test('settings silently ignored by the server cannot be acknowledged as applied',async()=>{
+ const f=fixture();
+ const request=async q=>{
+  const r=await f.request(q);
+  if(q.method==='GET'&&q.url.endsWith('/table')&&r.data.courses.length)r.data={...r.data,setting:{...r.data.setting,presentWeek:1}};
+  return r;
+ };
+ assert.notEqual((await driver.run(f.job,request,f.checkpoint)).state,'applied');
+});
+
+test('rechecking a verified table repairs changed times and week without creating another table',async()=>{
+ const f=fixture();
+ assert.equal((await driver.run(f.job,f.request,f.checkpoint)).state,'applied');
+ f.writes.length=0;
+ f.job={...f.job,tableId:'10',phase:'verifying'};
+ assert.equal((await driver.run(f.job,f.request,f.checkpoint)).state,'applied');
+ assert.equal(f.writes.length,0);
+ let corrupt=true;
+ const request=async q=>{
+  if(q.method==='PUT')corrupt=false;
+  const r=await f.request(q);
+  if(corrupt&&q.method==='GET'&&q.url.endsWith('/table'))r.data={...r.data,setting:{...r.data.setting,presentWeek:0,sectionTimes:'[{"i":1,"s":"07:00","e":"07:40"}]'}};
+  return r;
+ };
+ assert.equal((await driver.run(f.job,request,f.checkpoint)).state,'applied');
+ assert.equal(f.writes.filter(w=>w.method==='POST'&&w.url.endsWith('/table')).length,0);
+ assert.ok(f.writes.some(w=>w.method==='PUT'));
+});
 test('an unrelated preexisting table with the reserved name is not adopted',async()=>{
  const f=fixture();const request=async q=>q.url.endsWith('/tables')?{code:0,data:[{id:9,name:'AHUCM-'+payload.owner.slice(0,16)+'-'+payload.termCode}]}:f.request(q);
  const r=await driver.run(f.job,request,f.checkpoint);assert.equal(r.state,'failed');assert.equal(f.writes.length,0);

@@ -50,6 +50,14 @@ class ManagedSyncProvider : ContentProvider() {
                 }
                 if (record != null && record.getString("revision") == payload.getString("revision") &&
                     record.getString("owner") == payload.getString("owner") && record.getString("termCode") == payload.getString("termCode")) {
+                    // A successful receipt is historical: the host may have been edited,
+                    // or the current week may have advanced. Recheck the bound table.
+                    if (record.optString("state") == "applied") {
+                        record.put("state", "accepted").put("phase", "verifying")
+                            .put("message", "queued_for_host").put("token", "")
+                            .put("leaseUntil", 0).put("nextAttempt", 0)
+                        write(record)
+                    }
                     // A failure before the first acknowledged write may be queued
                     // again. Every interrupted write has a different durable phase
                     // and remains restricted to readback-only recovery.
@@ -174,7 +182,6 @@ class ManagedSyncProvider : ContentProvider() {
         require(t.getLong("startSemester") == monday.atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli())
         require(!t.getBoolean("startWithSunday"))
         t.getBoolean("showWeekend")
-        require(t.getInt("forenoon") == 4 && t.getInt("afternoon") == 6 && t.getInt("night") == 4)
         val sections = t.getJSONArray("sections")
         require(sections.length() == 14)
         val time = Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]")
@@ -184,6 +191,10 @@ class ManagedSyncProvider : ContentProvider() {
             require(time.matches(s.getString("startTime")) && time.matches(s.getString("endTime")))
             require(s.getString("startTime") < s.getString("endTime"))
         }
+        val starts = (0 until sections.length()).map { sections.getJSONObject(it).getString("startTime") }
+        require(t.getInt("forenoon") == starts.count { it < "13:00" })
+        require(t.getInt("afternoon") == starts.count { it >= "13:00" && it < "18:00" })
+        require(t.getInt("night") == starts.count { it >= "18:00" })
         val courses = p.getJSONArray("courses")
         require(courses.length() in 1..2000) { "empty_or_excessive_courses" }
         for (i in 0 until courses.length()) {

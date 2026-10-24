@@ -23,9 +23,12 @@ object XiaoAiExport {
         }.map { (key, lessons) -> XiaoAiCourse(key[0], key[1], key[2], key[3].toInt(), lessons.first().sections.distinct().sorted(), lessons.map { it.week }.distinct().sorted()) }
             .sortedWith(compareBy({ it.day }, { it.sections.first() }, { it.name }, { it.teacher }, { it.position }))
         val totalWeek = maxOf(snapshot.lessons.maxOf { it.week }, snapshot.calendarEndDate.takeIf { it.isNotBlank() }?.let { (ChronoUnit.WEEKS.between(monday,LocalDate.parse(it)) + 1).toInt() } ?: 1)
-        val timer = XiaoAiTimer(totalWeek, monday.atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli(), snapshot.periods.sortedBy { it.section }.map { XiaoAiSection(it.section,it.start,it.end) })
-        // A color-policy migration is a real target update even when school data is unchanged.
-        val revision = digest("random-colors-v1|$owner|${snapshot.termCode}|${json.encodeToString(courses)}|${json.encodeToString(timer)}")
+        // Use the same 13:00 / 18:00 boundaries as XiaoAi's official timer importer.
+        val morning = snapshot.periods.count { LocalTime.parse(it.start) < LocalTime.of(13, 0) }
+        val afternoon = snapshot.periods.count { LocalTime.parse(it.start) >= LocalTime.of(13, 0) && LocalTime.parse(it.start) < LocalTime.of(18, 0) }
+        val timer = XiaoAiTimer(totalWeek, monday.atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli(), snapshot.periods.sortedBy { it.section }.map { XiaoAiSection(it.section,it.start,it.end) }, forenoon=morning, afternoon=afternoon, night=snapshot.periods.size-morning-afternoon)
+        // Adapter migrations must recheck the target even when school data is unchanged.
+        val revision = digest("timer-readback-v2|$owner|${snapshot.termCode}|${json.encodeToString(courses)}|${json.encodeToString(timer)}")
         return XiaoAiPayload(owner,snapshot.termCode,revision,snapshot.retrievedAt,snapshot.weekOneMonday,snapshot.termLabel,courses,timer)
     }
     fun json(payload: XiaoAiPayload) = json.encodeToString(payload)
