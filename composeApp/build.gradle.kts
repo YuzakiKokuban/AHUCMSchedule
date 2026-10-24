@@ -35,10 +35,10 @@ compose.desktop {
         mainClass = "cn.edu.ahtcm.schedule.desktop.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Msi)
-            packageName = "AHUCMSchedule"
+            packageName = "QihuangSchedule"
             packageVersion = project.version.toString()
             windows {
-                menuGroup = "AHUCMSchedule"
+                menuGroup = "岐黄课表"
                 shortcut = true
                 iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
             }

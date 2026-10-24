@@ -1,4 +1,4 @@
-"""Single source of truth for the 安中课表 · AHUCM Schedule logo.
+"""Single source of truth for the 岐黄课表 · AHUCM Schedule logo.
 
 The mark is a timetable: a rounded header bar plus a 2 x 3 grid of class blocks
 on a light jade squircle.  All geometry lives in a 512 x 512 design space.

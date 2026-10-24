@@ -1,0 +1,9 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "qihuang-schedule",
+  "version": "0.1.0",
+  "description": "岐黄课表 HarmonyOS NEXT 适配试验",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -15,6 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  harmony-prototype-logic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify vendored parser and anonymous HarmonyOS prototype logic
+        run: |
+          echo "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41  harmonyApp/entry/src/main/resources/rawfile/vendor/xlsx.full.min.js" | sha256sum --check
+          node --test harmonyApp/tests/*.test.cjs
   workflow-lint:
     runs-on: ubuntu-latest
     timeout-minutes: 5

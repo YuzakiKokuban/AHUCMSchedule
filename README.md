@@ -1,8 +1,8 @@
-# 安中课表 · AHUCMSchedule
+# 岐黄课表 · Qihuang Schedule
 
 安徽中医药大学课程表应用，支持 Android 与 Windows，使用 Kotlin、Compose Multiplatform 和 miuix Monet 配色。Android 包名为 `com.yuzakikokuban.ahucm`。
 
-![安中课表](design/logo-lockup-light.png)
+![岐黄课表](design/logo-lockup-light.png)
 
 ## 标志与 Monet 取色
 
@@ -33,7 +33,7 @@
 
 ## 发布包
 
-正式 Release 提供固定签名的 Android APK 和带运行环境的 Windows ZIP；密钥及口令不入库，需另外离线备份。正式包与旧调试包签名不同，切换时请按 Release 说明处理。Windows 解压完整 ZIP 后运行 `AHUCMSchedule.exe`；下载页同时提供 `SHA256SUMS.txt`。
+正式 Release 提供固定签名的 Android APK 和带运行环境的 Windows ZIP；密钥及口令不入库，需另外离线备份。正式包与旧调试包签名不同，切换时请按 Release 说明处理。Windows 解压完整 ZIP 后运行 `QihuangSchedule.exe`；下载页同时提供 `SHA256SUMS.txt`。
 
 签名配置读取忽略提交的 `local.properties` 中的 `ahucm.release.*` 项，缺失时 release 构建回退为调试签名，保证干净检出仍可构建：
 
@@ -95,6 +95,12 @@ Android 缓存保存在应用私有目录，Windows 缓存位于 `%LOCALAPPDATA%
 这些变量不应写入仓库或共享配置。
 
 miuix: https://github.com/compose-miuix-ui/miuix （Apache-2.0）
+
+## 鸿蒙适配预览
+
+HarmonyOS NEXT 的独立 ArkTS/ArkUI 原型位于 [harmonyApp](harmonyApp/README.md)，提供原生课表页面、学校网页登录、完整官方 XLS 解析与按账号隔离的离线缓存。已在 DevEco Studio 26 自带 SDK 下通过 ArkTS 编译和 HAP 打包，并提供未签名的预览 HAP；尚未完成设备签名、鸿蒙真机登录和运行验证。
+
+小爱自动管理功能区仅在 Android 收到支持 API 102 的框架服务激活信号后显示；未激活、服务连接丢失以及 Windows/鸿蒙平台均隐藏整块入口和说明。是否开启自动管理与模块是否激活分别保存、判断。
 
 ## 持续集成与发布
 

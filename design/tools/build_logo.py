@@ -1,4 +1,4 @@
-"""Build every logo artefact for 安中课表 · AHUCM Schedule.
+"""Build every logo artefact for 岐黄课表 · AHUCM Schedule.
 
 Two stages, because headless Edge must be driven from PowerShell:
 
@@ -231,8 +231,8 @@ def export_lockups(icon: Image.Image) -> list[Path]:
     pad = 24
     title_font = font(FONT_BOLD, 92)
     sub_font = font(FONT_REGULAR, 38)
-    title = "安中课表"
-    subtitle = "AHUCM Schedule"
+    title = "岐黄课表"
+    subtitle = "Qihuang Schedule"
 
     probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
     title_box = probe.textbbox((0, 0), title, font=title_font)

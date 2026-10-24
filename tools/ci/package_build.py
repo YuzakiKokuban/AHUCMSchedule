@@ -17,7 +17,7 @@ def android(variant):
     if len(candidates) != 1 or "unsigned" in candidates[0].name:
         raise SystemExit("Expected exactly one signed Android APK")
     suffix = "-debug" if variant == "debug" else ""
-    target = ROOT / "outputs" / f"AHUCMSchedule-Android-{version()}{suffix}.apk"
+    target = ROOT / "outputs" / f"QihuangSchedule-Android-{version()}{suffix}.apk"
     target.parent.mkdir(exist_ok=True)
     shutil.copy2(candidates[0], target)
     with ZipFile(target) as archive:
@@ -34,18 +34,18 @@ def android(variant):
     checksum(target, "Android")
 
 def windows():
-    source = ROOT / "composeApp/build/compose/binaries/main/app/AHUCMSchedule"
-    if not (source / "AHUCMSchedule.exe").is_file():
+    source = ROOT / "composeApp/build/compose/binaries/main/app/QihuangSchedule"
+    if not (source / "QihuangSchedule.exe").is_file():
         raise SystemExit("Windows application image is missing")
-    target = ROOT / "outputs" / f"AHUCMSchedule-Windows-{version()}.zip"
+    target = ROOT / "outputs" / f"QihuangSchedule-Windows-{version()}.zip"
     target.parent.mkdir(exist_ok=True)
     with ZipFile(target, "w", ZIP_DEFLATED, compresslevel=6) as archive:
         for path in sorted(source.rglob("*")):
             if path.is_file():
-                archive.write(path, Path("AHUCMSchedule") / path.relative_to(source))
-        archive.write(ROOT / "LICENSE", "AHUCMSchedule/LICENSE")
-        archive.write(ROOT / "THIRD_PARTY_NOTICES.md", "AHUCMSchedule/THIRD_PARTY_NOTICES.md")
-        archive.write(ROOT / "androidApp/src/main/assets/third-party-notices.txt", "AHUCMSchedule/third-party-notices.txt")
+                archive.write(path, Path("QihuangSchedule") / path.relative_to(source))
+        archive.write(ROOT / "LICENSE", "QihuangSchedule/LICENSE")
+        archive.write(ROOT / "THIRD_PARTY_NOTICES.md", "QihuangSchedule/THIRD_PARTY_NOTICES.md")
+        archive.write(ROOT / "androidApp/src/main/assets/third-party-notices.txt", "QihuangSchedule/third-party-notices.txt")
     with ZipFile(target) as archive:
         assert archive.testzip() is None
         assert any("runtime/legal/" in name for name in archive.namelist())

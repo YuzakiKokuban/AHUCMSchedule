@@ -60,6 +60,7 @@ interface PlatformActions {
     fun disableCalendar() = Unit
     fun disableXiaoAi() = Unit
     val moduleSupported: Boolean get() = false
+    val moduleActivation: StateFlow<Boolean>? get() = null
     val moduleStatus: StateFlow<String>? get() = null
     fun manageXiaoAi(snapshot: ScheduleSnapshot) = Unit
     fun onScheduleSynchronized(snapshot: ScheduleSnapshot): List<String> = emptyList()
@@ -296,7 +297,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
     MiuixTheme(controller = theme) {
         Scaffold(
             topBar = {
-                SmallTopAppBar(title = "安中课表", titlePadding = 16.dp, actionIconPadding = 12.dp, actions = {
+                SmallTopAppBar(title = "岐黄课表", titlePadding = 16.dp, actionIconPadding = 12.dp, actions = {
                     val spin = if (syncing) {
                         val transition = rememberInfiniteTransition()
                         transition.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing))).value
@@ -439,7 +440,8 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             Spacer(Modifier.height(12.dp))
                             TextButton("停止日历自动同步", { platform.disableCalendar() }, modifier = Modifier.fillMaxWidth())
                         }
-                        if (current != null && platform.moduleSupported) {
+                        val moduleActive = platform.moduleActivation?.collectAsState()?.value == true
+                        if (current != null && platform.moduleSupported && moduleActive) {
                             Spacer(Modifier.height(12.dp))
                             TextButton("开启小爱课表自动管理", { platform.manageXiaoAi(current) },
                                 modifier = Modifier.fillMaxWidth(), enabled = !busy && current.periods.isNotEmpty())

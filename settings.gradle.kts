@@ -33,7 +33,7 @@ dependencyResolutionManagement {
         } else { google(); mavenCentral() }
     }
 }
-rootProject.name = "AHUCMSchedule"
+rootProject.name = "QihuangSchedule"
 include(":core", ":composeApp")
 val sdkAvailable = local.getProperty("sdk.dir") != null ||
     System.getenv("ANDROID_HOME") != null || System.getenv("ANDROID_SDK_ROOT") != null

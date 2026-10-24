@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
             override fun disableCalendar() { model.disable("calendar") }
             override fun disableXiaoAi() { model.disable("module") }
             override val moduleSupported = true
+            override val moduleActivation = (application as ScheduleApplication).moduleActivation
             override val moduleStatus = model.moduleStatus
             override fun manageXiaoAi(snapshot: ScheduleSnapshot) { model.enableModule() }
             override fun onScheduleSynchronized(snapshot: ScheduleSnapshot) = model.syncIntegrations(snapshot)
@@ -98,7 +99,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     val foreground = MutableStateFlow(false)
     val selections = MutableStateFlow<FileSelection?>(null)
     val feedback = MutableStateFlow<IntegrationFeedback?>(null)
-    val moduleStatus = MutableStateFlow("需要支持 API 102 的 LSPosed；启用安中课表并勾选小爱助手")
+    val moduleStatus = MutableStateFlow("需要支持 API 102 的 LSPosed；启用岐黄课表并勾选小爱助手")
     private val authPrefs = application.getSharedPreferences("auth-state",0)
     private val prefs = application.getSharedPreferences("integrations", 0)
     private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -110,7 +111,10 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     init {
         io.launch {
             while (isActive) {
-                if (foreground.value && moduleLinked) runCatching { refreshModuleStatus() }
+                if (foreground.value) {
+                    (context as ScheduleApplication).refreshModuleActivation()
+                    if (moduleLinked && context.moduleActivation.value) runCatching { refreshModuleStatus() }
+                }
                 delay(2000)
             }
         }
@@ -193,6 +197,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     } }
     fun enableModule() { io.launch {
         try {
+            check((context as ScheduleApplication).moduleActivation.value) { "模块尚未激活" }
             school.withSession {
                 val snapshot = fresh()
                 val owner = requireNotNull(storage.activeAccountKey)
@@ -200,13 +205,13 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
                 prefs.edit().putBoolean("module:$owner",true).apply()
                 report(moduleStatus.value)
             }
-        } catch (_: Exception) { report("小爱自动管理未开启，请先登录并在 LSPosed 启用安中课表",true) }
+        } catch (_: Exception) { report("小爱自动管理未开启，请先登录并在 LSPosed 启用岐黄课表",true) }
     } }
     fun syncIntegrations(snapshot: ScheduleSnapshot): List<String> {
         val owner = storage.activeAccountKey ?: return emptyList()
         val errors = mutableListOf<String>()
         if(calendarLinked) try { calendar.sync(snapshot,owner) } catch (_: Exception) { errors += "课表已更新，日历同步失败，请检查权限" }
-        if(moduleLinked) try { submitModule(snapshot,owner,false) } catch (_: Exception) { errors += "课表已更新，小爱更新尚未完成，请查看自动管理状态" }
+        if(moduleLinked && (context as ScheduleApplication).moduleActivation.value) try { submitModule(snapshot,owner,false) } catch (_: Exception) { errors += "课表已更新，小爱更新尚未完成，请查看自动管理状态" }
         return errors
     }
     private fun submitModule(snapshot: ScheduleSnapshot, owner: String, force: Boolean) {
@@ -234,7 +239,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         moduleStatus.value = when(reply.getString("state")) {
             "applied" -> "小爱课表已更新并核验"
             "failed" -> "小爱更新失败，请检查小爱账号与模块状态"
-            else -> "等待小爱助手完成更新；请在 LSPosed 启用安中课表"
+            else -> "等待小爱助手完成更新；请在 LSPosed 启用岐黄课表"
         }
     }
     fun read(uri: Uri?) {

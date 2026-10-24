@@ -19,6 +19,54 @@ import org.junit.Test
 class AppTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun `module area follows activation and hides again on service loss`() {
+        val directory = Files.createTempDirectory("ahu-module-active")
+        try {
+            val active = kotlinx.coroutines.flow.MutableStateFlow(false)
+            val actions = object : PlatformActions {
+                override val repository = ScheduleRepository(directory).apply { importXls(sample()) }
+                override val moduleSupported = true
+                override val moduleActivation = active
+                override val moduleLinked = true
+                override val moduleStatus = kotlinx.coroutines.flow.MutableStateFlow("framework connected")
+                override fun openSchool() = Unit
+                override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) = Unit
+            }
+            compose.setContent { App(actions, LocalDate.parse("2026-10-21")) }
+            compose.onNodeWithText("连接教务").performClick()
+            compose.onNodeWithText("开启小爱课表自动管理").assertDoesNotExist()
+            active.value = true
+            compose.waitForIdle()
+            compose.onNodeWithText("开启小爱课表自动管理").assertExists()
+            compose.onNodeWithText("停止小爱自动管理").assertExists()
+            compose.onNodeWithText("framework connected").assertExists()
+            active.value = false
+            compose.waitForIdle()
+            compose.onNodeWithText("开启小爱课表自动管理").assertDoesNotExist()
+            compose.onNodeWithText("停止小爱自动管理").assertDoesNotExist()
+            compose.onNodeWithText("framework connected").assertDoesNotExist()
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `module area stays hidden without framework activation despite saved management state`() {
+        val directory = Files.createTempDirectory("ahu-module-hidden")
+        try {
+            val actions = object : PlatformActions {
+                override val repository = ScheduleRepository(directory).apply { importXls(sample()) }
+                override val moduleSupported = true
+                override val moduleLinked = true
+                override val moduleStatus = kotlinx.coroutines.flow.MutableStateFlow("saved module status")
+                override fun openSchool() = Unit
+                override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) = Unit
+            }
+            compose.setContent { App(actions, LocalDate.parse("2026-10-21")) }
+            compose.onNodeWithText("连接教务").performClick()
+            compose.onNodeWithText("开启小爱课表自动管理").assertDoesNotExist()
+            compose.onNodeWithText("停止小爱自动管理").assertDoesNotExist()
+            compose.onNodeWithText("saved module status").assertDoesNotExist()
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     @Test fun `login synchronizes official timetable and displays adjustment feed`() {
         val directory = Files.createTempDirectory("ahu-online-ui")
         try {

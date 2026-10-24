@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Regenerate every 安中课表 logo artefact from design/tools/logo_spec.py.
+  Regenerate every 岐黄课表 logo artefact from design/tools/logo_spec.py.
 
 .DESCRIPTION
   Three steps are required because headless Edge must be launched from

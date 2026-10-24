@@ -39,7 +39,7 @@ object CalendarExport {
     fun ics(snapshot: ScheduleSnapshot, owner: String): String {
         val formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
         fun escape(text: String) = text.replace("\\", "\\\\").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n").replace(";", "\\;").replace(",", "\\,")
-        val lines = mutableListOf("BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//YuzakiKokuban//AHUCMSchedule//ZH", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:安中课表", "X-WR-TIMEZONE:Asia/Shanghai")
+        val lines = mutableListOf("BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//YuzakiKokuban//AHUCMSchedule//ZH", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:岐黄课表", "X-WR-TIMEZONE:Asia/Shanghai")
         events(snapshot, owner).forEach { event ->
             lines += listOf("BEGIN:VEVENT", "UID:${event.uid}@yuzakikokuban.com", "DTSTAMP:${formatter.format(Instant.parse(snapshot.retrievedAt))}",
                 "DTSTART:${formatter.format(Instant.ofEpochMilli(event.startMillis))}", "DTEND:${formatter.format(Instant.ofEpochMilli(event.endMillis))}",

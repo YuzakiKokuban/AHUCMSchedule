@@ -23,3 +23,8 @@ signing.properties
 .env.*
 !.env.example
 /design/tools/draft_*.py
+/harmonyApp/.hvigor/
+/harmonyApp/oh_modules/
+/harmonyApp/**/oh_modules/
+/harmonyApp/local.properties
+/harmonyApp/.preview/

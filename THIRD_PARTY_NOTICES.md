@@ -1,6 +1,6 @@
 # Third-party software
 
-AHUCMSchedule's original code and artwork are licensed under Apache-2.0. Third-party
+Qihuang Schedule's original code and artwork are licensed under Apache-2.0. Third-party
 components retain their own copyright and license terms.
 
 The complete dependency notices bundled with the application are in
@@ -14,6 +14,8 @@ its implementation is not bundled in the APK.
 
 - miuix: <https://github.com/compose-miuix-ui/miuix> (Apache-2.0)
 - libxposed API: <https://github.com/libxposed/api> (Apache-2.0)
+- libxposed Service 102.0.0: <https://github.com/libxposed/service> (Apache-2.0), bundled in Android for framework activation callbacks; the hook API remains compile-only.
+- SheetJS CE 0.20.3: <https://docs.sheetjs.com/> (Apache-2.0), vendored only in the HarmonyOS prototype; see `harmonyApp/entry/src/main/resources/rawfile/vendor/SHEETJS-LICENSE`.
 - Gradle: <https://github.com/gradle/gradle> (Apache-2.0)
 
 The XiaoAi integration is an independent adapter to the assistant's existing

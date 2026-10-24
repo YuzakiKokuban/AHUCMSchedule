@@ -35,7 +35,7 @@ fun main() {
         override val calendarActionLabel = "导出日历 ICS"
         override fun importCalendar(snapshot: ScheduleSnapshot) {
             SwingUtilities.invokeLater {
-                val picker = JFileChooser().apply { dialogTitle="导出课程日历";selectedFile=java.io.File("安中课表-${snapshot.termCode}.ics");fileFilter=FileNameExtensionFilter("日历 (*.ics)","ics") }
+                val picker = JFileChooser().apply { dialogTitle="导出课程日历";selectedFile=java.io.File("岐黄课表-${snapshot.termCode}.ics");fileFilter=FileNameExtensionFilter("日历 (*.ics)","ics") }
                 if(picker.showSaveDialog(null)!=JFileChooser.APPROVE_OPTION) return@invokeLater
                 try {
                     val selected = picker.selectedFile
@@ -67,7 +67,7 @@ fun main() {
     }
     application {
         val windowIcon = painterResource("icon.png")
-        Window(icon = windowIcon, onCloseRequest = ::exitApplication, title = "安中课表", state = rememberWindowState(width = 1180.dp, height = 820.dp)) {
+        Window(icon = windowIcon, onCloseRequest = ::exitApplication, title = "岐黄课表", state = rememberWindowState(width = 1180.dp, height = 820.dp)) {
             App(actions)
         }
     }

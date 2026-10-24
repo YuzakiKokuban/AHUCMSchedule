@@ -89,7 +89,7 @@ class AndroidCalendarSync(context: Context) {
                 put(Calendars.ACCOUNT_NAME, account)
                 put(Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
                 put(Calendars.NAME, calendarName)
-                put(Calendars.CALENDAR_DISPLAY_NAME, "安中课表")
+                put(Calendars.CALENDAR_DISPLAY_NAME, "岐黄课表")
                 put(Calendars.OWNER_ACCOUNT, account)
                 put(Calendars.CALENDAR_ACCESS_LEVEL, Calendars.CAL_ACCESS_OWNER)
                 put(Calendars.CALENDAR_COLOR, 0xff4d7c69.toInt())

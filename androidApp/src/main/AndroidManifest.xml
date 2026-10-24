@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <queries><package android:name="com.miui.voiceassist" /></queries>
-    <application android:allowBackup="false" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:label="安中课表" android:description="@string/module_description" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false" android:supportsRtl="true">
+    <application android:name=".ScheduleApplication" android:allowBackup="false" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:label="岐黄课表" android:description="@string/module_description" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false" android:supportsRtl="true">
         <provider android:name=".integration.ManagedSyncProvider" android:authorities="com.yuzakikokuban.ahucm.schedule.sync" android:exported="true" android:grantUriPermissions="false" />
         <activity android:name=".SchoolWebLoginActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
