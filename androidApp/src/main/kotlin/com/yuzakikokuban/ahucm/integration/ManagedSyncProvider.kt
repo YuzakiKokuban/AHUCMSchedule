@@ -194,8 +194,8 @@ class ManagedSyncProvider : ContentProvider() {
         }
         val starts = (0 until sections.length()).map { sections.getJSONObject(it).getString("startTime") }
         require(t.getInt("forenoon") == starts.count { it < "13:00" })
-        require(t.getInt("afternoon") == starts.count { it >= "13:00" && it < "18:00" })
-        require(t.getInt("night") == starts.count { it >= "18:00" })
+        require(t.getInt("afternoon") == starts.count { it >= "13:00" && it < "17:10" })
+        require(t.getInt("night") == starts.count { it >= "17:10" })
         val courses = p.getJSONArray("courses")
         require(courses.length() in 1..2000) { "empty_or_excessive_courses" }
         for (i in 0 until courses.length()) {

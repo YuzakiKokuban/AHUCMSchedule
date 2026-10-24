@@ -11,9 +11,18 @@ class IntegrationTest {
         val periods = starts.mapIndexed { index, start -> ClassPeriod(index + 1, start, java.time.LocalTime.parse(start).plusMinutes(40).toString()) }
         val timer = XiaoAiExport.payload(snapshot().copy(periods=periods.reversed()), "a".repeat(64)).timer
         assertEquals(4,timer.forenoon)
-        assertEquals(5,timer.afternoon)
-        assertEquals(5,timer.night)
+        assertEquals(4,timer.afternoon)
+        assertEquals(6,timer.night)
         assertEquals(periods.map { XiaoAiSection(it.section,it.start,it.end) },timer.sections)
+    }
+    @Test fun `xiaoai evening begins at 1710 while 1709 remains afternoon`() {
+        for ((start, afternoon, night) in listOf(Triple("17:09",5,3),Triple("17:10",4,4))) {
+            val periods = snapshot().periods.map { if(it.section==11) it.copy(start=start,end="17:50") else it }
+            val timer = XiaoAiExport.payload(snapshot().copy(periods=periods),"a".repeat(64)).timer
+            assertEquals(6,timer.forenoon)
+            assertEquals(afternoon,timer.afternoon,start)
+            assertEquals(night,timer.night,start)
+        }
     }
     private fun snapshot(sections: List<Int> = listOf(1,2,5,6)) = ScheduleSnapshot("202601", "2026-2027-1", "2026-08-31", "2026-10-22T14:00:00Z", listOf(Lesson("护理,实验;课", "实验", "教师", "教室\nA101", "内容", "2026-10-19", 8, sections)), periods=(1..14).map { ClassPeriod(it, "%02d:00".format(it+6), "%02d:40".format(it+6)) })
 
