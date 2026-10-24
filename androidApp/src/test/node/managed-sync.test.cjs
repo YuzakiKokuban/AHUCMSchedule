@@ -4,19 +4,26 @@ const fs = require('node:fs');
 const path = '../../main/res/raw/managed_sync.js';
 const driver = fs.existsSync(require('node:path').join(__dirname,path)) ? require(path) : {run: async()=>{throw new Error('driver missing')}};
 const payload = {owner:'a'.repeat(64),termCode:'202601',revision:'b'.repeat(64),timer:{totalWeek:20,startSemester:1788105600000,startWithSunday:false,showWeekend:true,forenoon:4,afternoon:6,night:4,sections:[{section:1,startTime:'08:30',endTime:'09:10'}]},courses:[{name:'Nursing',teacher:'T',position:'R',day:1,sections:[1],weeks:[1,2]}]};
-function fixture({mismatch=false,uncertain=false,other=false}={}) {
-  let tables=other?[{id:9,name:'Personal',current:1}]:[], courses=[], setting={id:51,speak:1,sectionTimes:'[]',extend:JSON.stringify({bgSetting:{name:'custom'},showNotInWeek:true})}, writes=[], receipts=[];
+function fixture({mismatch=false,uncertain=false,other=false,existing=false,taken=false,dropFirst=0}={}) {
+  const managedName='AHUCM-'+payload.owner.slice(0,16)+'-'+payload.termCode;
+  let tables=other||existing?[{id:9,name:other?'Personal':'AHUCM-old',current:1}]:[];
+  if(existing)tables=[{id:10,name:managedName,current:1}];
+  if(taken)tables=[{id:11,name:managedName,current:1}];
+  let courses=[], dropped=dropFirst, setting={id:51,speak:1,sectionTimes:'[]',extend:JSON.stringify({bgSetting:{name:'custom'},showNotInWeek:true})}, writes=[], receipts=[];
   const request=async ({url,method,data})=>{
     if(method!=='GET')writes.push({url,method,data});
     if(url.endsWith('/tables'))return {code:0,data:tables};
     if(url.endsWith('/table')&&method==='POST'){tables.push({id:10,name:data.name,current:0});return {code:0,data:10};}
-    if(url.endsWith('/courseInfos')){courses=data.courses;return {code:0,data:courses.map((_,i)=>i+1)};}
+    if(url.endsWith('/courseInfos')){
+      if(dropped>0){dropped--;return {code:0,data:[]};}
+      courses=data.courses;return {code:0,data:courses.map((_,i)=>i+1)};
+    }
     if(url.endsWith('/table')&&method==='PUT'){setting={...data.setting,sectionTimes:data.setting.sections};return {code:0,data:true};}
     if(url.endsWith('/table')&&method==='GET')return {code:0,data:{courses:mismatch?[]:courses,setting}};
     if(url.endsWith('/table_switch')){tables.forEach(t=>t.current=t.id===10?1:0);return {code:0,data:true};}
     throw Error('unexpected request');
   };
-  return {request,writes,receipts,checkpoint:async r=>{receipts.push(r);return true;},job:{payload,phase:uncertain?'courses-writing':'accepted',tableId:uncertain?'10':''}};
+  return {request,writes,receipts,checkpoint:async r=>{receipts.push(r);return true;},job:{payload,phase:uncertain?'courses-writing':existing||taken?'verifying':'accepted',tableId:uncertain||existing||taken?'10':''}};
 }
 test('writes only dedicated table and reports applied after course/settings readback',async()=>{
  const f=fixture({other:true});const r=await driver.run(f.job,f.request,f.checkpoint);
@@ -28,8 +35,10 @@ test('writes only dedicated table and reports applied after course/settings read
 test('readback mismatch never reports applied',async()=>{
  const f=fixture({mismatch:true});const r=await driver.run(f.job,f.request,f.checkpoint);assert.notEqual(r.state,'applied');
 });
-test('uncertain previous mutation is recovered by readback only',async()=>{
- const f=fixture({uncertain:true});const r=await driver.run(f.job,f.request,f.checkpoint);assert.equal(f.writes.length,0);assert.equal(r.state,'pending');
+test('an interrupted mutation repairs its bound table instead of waiting forever',async()=>{
+ const f=fixture({uncertain:true});const r=await driver.run(f.job,f.request,f.checkpoint);
+ assert.equal(r.state,'applied');
+ assert.ok(f.writes.some(w=>w.method==='POST'&&w.url.endsWith('/table')));
 });
 test('refuses write if durable checkpoint cannot be saved',async()=>{
  const f=fixture();const r=await driver.run(f.job,f.request,async()=>false);assert.equal(f.writes.length,0);assert.notEqual(r.state,'applied');
@@ -42,9 +51,17 @@ test('an unrelated preexisting table with the reserved name is not adopted',asyn
  const f=fixture();const request=async q=>q.url.endsWith('/tables')?{code:0,data:[{id:9,name:'AHUCM-'+payload.owner.slice(0,16)+'-'+payload.termCode}]}:f.request(q);
  const r=await driver.run(f.job,request,f.checkpoint);assert.equal(r.state,'failed');assert.equal(f.writes.length,0);
 });
-test('known managed target must still have its exact identity before replacement',async()=>{
+test('a bound target that no longer matches is replaced without writing to it',async()=>{
  const f=fixture({other:true});f.job.tableId='9';const r=await driver.run(f.job,f.request,f.checkpoint);
- assert.equal(r.state,'failed');assert.equal(f.writes.length,0);
+ assert.equal(r.state,'applied');
+ assert.ok(f.writes.length>0);
+ assert.equal(f.writes.every(w=>w.data.ctId===undefined||String(w.data.ctId)!=='9'),true);
+});
+test('a reserved name owned by another table is never adopted or duplicated',async()=>{
+ const f=fixture({taken:true});const r=await driver.run(f.job,f.request,f.checkpoint);
+ assert.equal(r.state,'failed');
+ assert.equal(r.message,'managed_table_identity_changed');
+ assert.equal(f.writes.length,0);
 });
 test('ambiguous API response is never retried or reported as applied',async()=>{
  const f=fixture();let creates=0;const request=async q=>{
@@ -137,10 +154,57 @@ test('cancellation at first native checkpoint stops table creation',async()=>{
  const f=fixture();const r=await driver.run(f.job,f.request,async()=>({allowMutation:false,cancelRequested:true}));
  assert.equal(f.writes.length,0);assert.equal(r.state,'failed');assert.equal(r.cancelRequested,true);
 });
-test('cancellation after course write allows only reads and retains uncertainty',async()=>{
- const f=fixture();const checkpoint=async r=>r.phase==='settings-writing'?{allowMutation:false,cancelRequested:true}:true;
+test('new table is initialized with settings before courses are written',async()=>{
+ const f=fixture();const r=await driver.run(f.job,f.request,f.checkpoint);
+ assert.equal(r.state,'applied');
+ const order=f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`);
+ assert.ok(order.indexOf('PUT table')>=0&&order.indexOf('POST courseInfos')>=0);
+ assert.ok(order.indexOf('PUT table')<order.indexOf('POST courseInfos'),`settings must be durable before courses: ${order}`);
+});
+test('a silently dropped first course batch is rewritten once settings exist',async()=>{
+ const f=fixture({dropFirst:1});const r=await driver.run(f.job,f.request,f.checkpoint);
+ const posts=f.writes.filter(w=>w.url.endsWith('/courseInfos'));
+ assert.equal(r.state,'applied');
+ assert.equal(posts.length,2);
+ assert.deepEqual(posts[1].data,posts[0].data);
+ assert.equal(f.writes.filter(w=>w.method==='PUT'&&w.url.endsWith('/table')).length,1);
+ assert.equal(f.writes.filter(w=>w.url.endsWith('/table_switch')).length,1);
+ const order=f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`);
+ assert.ok(order.indexOf('PUT table')<order.indexOf('POST courseInfos'));
+});
+test('cancellation between a dropped batch and its replay stops the replay',async()=>{
+ const f=fixture({dropFirst:1});let courseCheckpoints=0;
+ const checkpoint=async r=>{
+  if(r.phase==='courses-writing'&&++courseCheckpoints===2)return {allowMutation:false,cancelRequested:true};
+  return true;
+ };
  const r=await driver.run(f.job,f.request,checkpoint);
- assert.deepEqual(f.writes.map(w=>w.url),['/course-multi/table','/course-multi/courseInfos']);
+ assert.equal(f.writes.filter(w=>w.url.endsWith('/courseInfos')).length,1);
+ assert.equal(r.state,'pending');assert.equal(r.cancelRequested,true);
+});
+test('a wedged verifier repairs the bound table instead of staying pending',async()=>{
+ const f=fixture({existing:true});const r=await driver.run(f.job,f.request,f.checkpoint);
+ assert.equal(r.state,'applied');assert.equal(r.phase,'verified');
+ assert.ok(f.writes.some(w=>w.url.endsWith('/courseInfos')));
+});
+test('an unrecoverable course write becomes failed/accepted instead of looping pending',async()=>{
+ const f=fixture({existing:true,mismatch:true});const r=await driver.run(f.job,f.request,f.checkpoint);
+ assert.equal(r.state,'failed');
+ assert.equal(r.phase,'accepted');
+ assert.equal(r.message,'course_write_not_persisted');
+ assert.equal(f.writes.filter(w=>w.url.endsWith('/courseInfos')).length,2);
+ assert.equal(f.writes.filter(w=>w.method==='PUT'&&w.url.endsWith('/table')).length,1);
+ assert.equal(f.writes.filter(w=>w.url.endsWith('/table_switch')).length,0);
+});
+test('a wedged verifier still never writes while cancellation is requested',async()=>{
+ const f=fixture({existing:true});f.job.cancelRequested=true;
+ const r=await driver.run(f.job,f.request,f.checkpoint);
+ assert.equal(f.writes.length,0);assert.equal(r.state,'pending');assert.equal(r.cancelRequested,true);
+});
+test('cancellation after course write allows only reads and retains uncertainty',async()=>{
+ const f=fixture();const checkpoint=async r=>r.phase==='selection-writing'?{allowMutation:false,cancelRequested:true}:true;
+ const r=await driver.run(f.job,f.request,checkpoint);
+ assert.deepEqual(f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`),['POST table','PUT table','POST courseInfos']);
  assert.equal(r.state,'pending');assert.equal(r.cancelRequested,true);
 });
 test('canceled interrupted job is readback-only',async()=>{

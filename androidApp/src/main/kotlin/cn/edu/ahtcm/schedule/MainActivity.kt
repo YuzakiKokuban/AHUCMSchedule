@@ -127,6 +127,25 @@ class MainActivity : ComponentActivity() {
     override fun onStop() { model.foreground.value = false; super.onStop() }
 }
 
+/** Turns the durable sync state into actionable text; the phase/message keep a
+ *  stuck job from being shown as a fresh "waiting" state. */
+internal fun moduleStatusText(state: String?, phase: String?, message: String?): String = when (state) {
+    "applied" -> "小爱课表已更新并核验"
+    "failed" -> when (message) {
+        "course_write_not_persisted" -> "小爱未保存课程，请重新点击「开启小爱课表自动管理」"
+        "server_readback_mismatch" -> "小爱读回内容不一致，请重新点击「开启小爱课表自动管理」"
+        "managed_table_identity_changed" -> "小爱中已存在同名课表，请在小爱课程表中删除后重试"
+        else -> "小爱更新失败，请检查小爱账号与模块状态"
+    }
+    // Pending jobs are repaired on the next host claim. Never recommend stopping
+    // management here: cancellation of an unclaimed pending job cannot be resumed.
+    "pending" -> when (phase) {
+        "verifying" -> "小爱课表正在核验或修复；请保持小爱课程表打开，或重新点击「开启小爱课表自动管理」"
+        else -> "等待小爱助手完成更新；请打开小爱课程表并保持前台"
+    }
+    else -> "等待小爱助手完成更新；请打开小爱课程表并保持前台"
+}
+
 class ImportViewModel(application: Application) : AndroidViewModel(application) {
     private val context = application
     private val root = application.filesDir.toPath().resolve("schedule")
@@ -283,11 +302,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         else moduleStatus.value="当前课表有新版本，等待更新到小爱"
     }
     private fun showModuleState(reply: Bundle) {
-        moduleStatus.value = when(reply.getString("state")) {
-            "applied" -> "小爱课表已更新并核验"
-            "failed" -> "小爱更新失败，请检查小爱账号与模块状态"
-            else -> "等待小爱助手完成更新；请在 LSPosed 启用岐黄课表"
-        }
+        moduleStatus.value = moduleStatusText(reply.getString("state"), reply.getString("phase"), reply.getString("message"))
     }
     fun read(uri: Uri?) {
         val token = sequence.incrementAndGet()

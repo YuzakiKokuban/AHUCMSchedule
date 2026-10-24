@@ -88,24 +88,25 @@
    }catch(e){}
    return {...report(),message:'canceled_write_requires_review'};
   };
-  try {
-   if(cancelRequested)return await canceled();
-   // Any interrupted write is read-only until a human resolves it. Never replay it.
-   if(phase!=='accepted') {
-    if(await verify())return {...report(),state:'applied',phase:'verified',courseCount:p.courses.length,colorCount:verifiedColorCount,message:'server_readback_verified'};
-    return {...report(),message:'uncertain_previous_write_requires_review'};
-   }
-   const tables=await call('GET','tables',{});
-   if(!Array.isArray(tables))throw Error('invalid_table_list');
-   if(tableId) {
-    if(!tables.some(t=>String(t.id)===String(tableId)&&t.name===name))throw Error('managed_table_identity_changed');
-   } else {
-    if(tables.some(t=>t.name===name))throw Error('unowned_table_name_collision');
-    await save('table-creating');
-    tableId=String(await call('POST','table',{name,current:0}));
-    if(!/^\d+$/.test(tableId)||tableId==='0')throw Error('invalid_created_table_id');
-    await save('table-created');
-   }
+  const verifiedReport=()=>({...report(),state:'applied',phase:'verified',courseCount:p.courses.length,colorCount:verifiedColorCount,message:'server_readback_verified'});
+  // A readback disagreement after an explicit failure is safe to retry only as a
+  // new bounded attempt; reporting failed/accepted also lets the app start over.
+  const failedReport=message=>({...report(),state:'failed',phase:'accepted',message:String(message||'host_failure').slice(0,160)});
+  const coursesPersisted=async()=>{const d=await call('GET','table',{ctId:tableId});return sameCourses(d.courses,p.courses);};
+  // A freshly created host table can acknowledge the batch yet persist no courses.
+  // The settings write above initializes it first; one bounded replay of the same
+  // idempotent replacement covers a silent drop, with its own cancellation
+  // checkpoint before the second mutation.
+  const writeCourses=async styleFor=>{
+   const body={ctId:tableId,courses:p.courses.map(c=>({...c,weeks:c.weeks.join(','),sections:c.sections.join(','),extend:'{}',style:styleFor(c.name),attendTime:0}))};
+   await save('courses-writing');
+   await call('POST','courseInfos',body);
+   if(await coursesPersisted())return true;
+   await save('courses-writing');
+   await call('POST','courseInfos',body);
+   return await coursesPersisted();
+  };
+  const writeAll=async tables=>{
    const original=await call('GET','table',{ctId:tableId});
    if(!original.setting||!original.setting.id)throw Error('missing_settings_identity');
    const settings={...settingsFor(p),id:original.setting.id};
@@ -114,16 +115,65 @@
    settings.extend=JSON.stringify({...JSON.parse(original.setting.extend||'{}'),startSemester:Number(p.timer.startSemester),ahuRandomColors:1});
    const styleFor=courseStyles(original);
    expectedStyles=new Map(p.courses.map(c=>{const s=JSON.parse(styleFor(c.name));return [c.name,JSON.stringify([s.color.toUpperCase(),s.background.toUpperCase()])];}));
-   await save('courses-writing');
-   await call('POST','courseInfos',{ctId:tableId,courses:p.courses.map(c=>({...c,weeks:c.weeks.join(','),sections:c.sections.join(','),extend:'{}',style:styleFor(c.name),attendTime:0}))});
    await save('settings-writing');
    await call('PUT','table',{ctId:tableId,name,setting:settings});
+   if(!await writeCourses(styleFor))throw Error('course_write_not_persisted');
    await save('selection-writing');
    const from=tables.find(t=>Number(t.current)===1);
    await call('POST','table_switch',{toCtId:tableId,fromCtId:from?from.id:0});
    await save('verifying');
-   if(!await verify())return {...report(),message:'server_readback_mismatch'};
-   return {...report(),state:'applied',phase:'verified',courseCount:p.courses.length,colorCount:verifiedColorCount,message:'server_readback_verified'};
+   return await verify();
+  };
+  const createManagedTable=async()=>{
+   await save('table-creating');
+   tableId=String(await call('POST','table',{name,current:0}));
+   if(!/^\d+$/.test(tableId)||tableId==='0')throw Error('invalid_created_table_id');
+   await save('table-created');
+  };
+  // The reserved table name identifies exactly one app-owned table. A binding
+  // whose table was deleted or renamed is replaced instead of kept forever; a
+  // table that already owns the reserved name is never adopted.
+  const ensureManagedTable=async tables=>{
+   if(tableId&&tables.some(t=>String(t.id)===String(tableId)&&t.name===name))return tables;
+   if(tables.some(t=>t.name===name))throw Error(tableId?'managed_table_identity_changed':'unowned_table_name_collision');
+   await createManagedTable();
+   const refreshed=await call('GET','tables',{});
+   if(!Array.isArray(refreshed))throw Error('invalid_table_list');
+   return refreshed;
+  };
+  const attemptWrite=async tables=>{
+   if(await writeAll(tables))return verifiedReport();
+   return failedReport('server_readback_mismatch');
+  };
+  try {
+   if(cancelRequested)return await canceled();
+   // A phase other than accepted means the previous round may have been
+   // interrupted. Verified data needs no work. The managed table is owned by the
+   // app, so an interrupted or unverified round is repaired by the same idempotent
+   // replacement instead of retrying readback forever; cancellation still wins.
+   if(phase!=='accepted') {
+    if(await verify())return verifiedReport();
+    if(cancelRequested)return {...report(),message:'canceled_write_requires_review'};
+    // Without a known table the previous create may still be ambiguous.
+    if(!tableId)return {...report(),message:'uncertain_previous_write_requires_review'};
+    try {
+     const tables=await call('GET','tables',{});
+     if(!Array.isArray(tables))return {...report(),message:'uncertain_previous_write_requires_review'};
+     return await attemptWrite(await ensureManagedTable(tables));
+    } catch(e) {
+     if(cancelRequested)return await canceled();
+     return failedReport(e.message);
+    }
+   }
+   try {
+    return await attemptWrite(await ensureManagedTable(await call('GET','tables',{})));
+   } catch(e) {
+    if(cancelRequested)return await canceled();
+    // An interrupted mutation stays read-only for this claim; the next claim
+    // repairs the bound table. An ambiguous table create has no known target and
+    // must not be replayed by guessing.
+    return {...report(),state:phase==='accepted'?'failed':'pending',message:String(e.message||'host_failure').slice(0,160)};
+   }
   } catch(e) {
    if(cancelRequested)return await canceled();
    return {...report(),state:phase==='accepted'?'failed':'pending',message:String(e.message||'host_failure').slice(0,160)};
