@@ -16,6 +16,10 @@ class AccountStorage(private val root: Path) {
         private set
     var notices = NoticeStore(directory(key))
         private set
+    var academicCalendar = AcademicCalendarStore(directory(key))
+        private set
+    var termSelection = TermSelectionStore(directory(key))
+        private set
 
     @Synchronized fun matchesSession(client: SchoolClient) = client.isAuthenticated && key != null && key == client.accountKey
 
@@ -25,6 +29,8 @@ class AccountStorage(private val root: Path) {
         if (next == key) return
         val nextSchedule = ScheduleRepository(directory(next))
         val nextNotices = NoticeStore(directory(next))
+        val nextCalendar = AcademicCalendarStore(directory(next))
+        val nextTermSelection = TermSelectionStore(directory(next))
         Files.createDirectories(root)
         val pending = Files.createTempFile(root, ".account-", ".tmp")
         try {
@@ -37,6 +43,8 @@ class AccountStorage(private val root: Path) {
             key = next
             schedule = nextSchedule
             notices = nextNotices
+            academicCalendar = nextCalendar
+            termSelection = nextTermSelection
         } finally { Files.deleteIfExists(pending) }
     }
     private fun directory(key: String?) = if (key == null) root else root.resolve("accounts").resolve(key)

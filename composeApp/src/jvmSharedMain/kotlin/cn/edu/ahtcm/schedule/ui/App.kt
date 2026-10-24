@@ -14,6 +14,9 @@ import top.yukonga.miuix.kmp.icon.extended.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +28,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.edu.ahtcm.schedule.core.*
@@ -47,6 +51,10 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 interface PlatformActions {
+    val desktop: Boolean get() = false
+    val syncGate: SyncGate? get() = null
+    val termSelection: TermSelectionStore? get() = null
+    val currentTermOnlyIntegrations: Boolean get() = false
     val aboutAvailable: Boolean get() = false
     fun openAbout() = Unit
     val webLoginAvailable: Boolean get() = false
@@ -74,6 +82,7 @@ interface PlatformActions {
     val school: SchoolClient? get() = null
     val sessionReady: Boolean get() = school?.isAuthenticated == true
     val noticeStore: NoticeStore? get() = null
+    val academicCalendarStore: AcademicCalendarStore? get() = null
     val foreground: StateFlow<Boolean>? get() = null
     fun selectAccount(account: String) = Unit
     fun chooseXls(onResult: (ByteArray?, String?) -> Unit)
@@ -85,7 +94,6 @@ interface PlatformActions {
 data class IntegrationFeedback(val id: Long, val message: String, val error: Boolean = false)
 
 data class FileSelection(val token: Long, val bytes: ByteArray?, val error: String? = null)
-private data class SchoolRefresh(val schedule: UpdateResult, val notices: NoticeSnapshot?, val noticeError: String?, val integrationErrors: List<String>)
 
 private val Ink: Color @Composable get() = MiuixTheme.colorScheme.onSurface
 private val Muted: Color @Composable get() = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -95,8 +103,20 @@ private val Shanghai = ZoneId.of("Asia/Shanghai")
 
 @Composable
 fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
-    var snapshot by remember { mutableStateOf(platform.repository.snapshot()) }
-    var page by remember { mutableStateOf(0) }
+    val repository = platform.repository
+    var explicitTerm by remember(repository) { mutableStateOf(platform.termSelection?.selected()) }
+    var selectedTerm by remember(repository) { mutableStateOf(explicitTerm ?: repository.snapshot()?.let { termFor(it.termCode) }
+        ?: platform.academicCalendarStore?.availableTerms()?.let { catalog -> catalog.terms.firstOrNull { it.code == catalog.currentCode } }) }
+    fun selectedSnapshot() = if (selectedTerm != null) platform.repository.snapshot(selectedTerm!!.code) else platform.repository.snapshot()
+    var snapshot by remember(repository) { mutableStateOf(selectedSnapshot()) }
+    var calendarSnapshot by remember(repository) { mutableStateOf(selectedTerm?.let { platform.academicCalendarStore?.snapshot(it.code) }) }
+    var calendarError by remember(repository) { mutableStateOf(platform.academicCalendarStore?.loadError) }
+    var terms by remember(repository) { mutableStateOf(knownTerms(platform)) }
+    var pickingTerm by remember { mutableStateOf(false) }
+    var page by rememberSaveable { mutableStateOf(0) }
+    val pageStateHolder = key(repository) { rememberSaveableStateHolder() }
+    val syncGate = remember(platform) { platform.syncGate ?: SyncGate() }
+    val sharedSyncing by syncGate.running.collectAsState()
     var busy by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var savedLogin by remember { mutableStateOf(false) }
@@ -109,77 +129,75 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
     var noticeError by remember { mutableStateOf(platform.noticeStore?.loadError) }
     val foreground = platform.foreground?.collectAsState()?.value ?: true
     val currentForeground by rememberUpdatedState(foreground)
-    var nextAutoSync by remember { mutableLongStateOf(0L) }
-    var monday by remember(snapshot?.termCode) {
-        mutableStateOf(today.minusDays((today.dayOfWeek.value - 1).toLong()))
+
+    var monday by rememberSaveable(repository, selectedTerm?.code, stateSaver = Saver<LocalDate, String>(save = { it.toString() }, restore = { LocalDate.parse(it) })) {
+        mutableStateOf(if (snapshot != null && today.toString() !in snapshot!!.weekOneMonday..snapshot!!.calendarEndDate) LocalDate.parse(snapshot!!.weekOneMonday)
+            else today.minusDays((today.dayOfWeek.value - 1).toLong()))
     }
     val generation = platform.sessionGeneration?.collectAsState()?.value ?: 0L
-    LaunchedEffect(generation) {
+    LaunchedEffect(repository, generation) {
+        explicitTerm = platform.termSelection?.selected()
+        selectedTerm = explicitTerm ?: repository.snapshot()?.let { termFor(it.termCode) }
+            ?: platform.academicCalendarStore?.availableTerms()?.let { catalog -> catalog.terms.firstOrNull { it.code == catalog.currentCode } }
+        snapshot = selectedSnapshot()
+        calendarSnapshot = selectedTerm?.let { platform.academicCalendarStore?.snapshot(it.code) }
+        terms = knownTerms(platform)
         if (platform.sessionReady) {
             authenticated = true
-            nextAutoSync = 0L
-            snapshot = platform.repository.snapshot()
+            if (!syncGate.running.value) syncGate.nextCheckMillis = 0L
+            snapshot = selectedSnapshot()
             noticeSnapshot = platform.noticeStore?.snapshot()
         }
     }
     val scope = rememberCoroutineScope()
-    suspend fun syncSchool() {
-        val school = platform.school ?: return
+    suspend fun syncSchool(expectedOwner: ScheduleRepository = repository) {
+        if (platform.repository !== expectedOwner) return
         if (!platform.sessionReady) {
             authenticated = false
             message = "请重新登录后同步；当前账号尚未完成连接。"
             failure = true
             return
         }
-        if (busy) return
+        if (busy || !syncGate.acquire()) return
+        val owner = expectedOwner
         busy = true
         syncing = true
+        syncGate.nextCheckMillis = System.currentTimeMillis() + 5 * 60 * 1000L
         try {
-            val refreshed = withContext(Dispatchers.IO) {
-                school.withSession {
-                    if (!platform.sessionReady) throw SchoolException("请重新登录后同步")
-                    val repository = platform.repository
-                    val store = platform.noticeStore
-                    val result = repository.synchronizeSchool { school.downloadSchoolTimetable() }
-                    val error = try {
-                        if (store != null) store.save(school.fetchNotices())
-                        null
-                    } catch (_: Exception) { "通知同步失败，保留上次结果；请检查网络或重新登录。" }
-                    SchoolRefresh(result, store?.snapshot(), error, if (result is UpdateResult.Success) platform.onScheduleSynchronized(result.snapshot) else emptyList())
-                }
+            val refreshed = synchronizeSchool(platform, explicitTerm, owner)
+            if (platform.repository !== owner) return
+            if (explicitTerm == null) selectedTerm = refreshed.term ?: selectedTerm
+            snapshot = selectedSnapshot()
+            calendarSnapshot = selectedTerm?.let { platform.academicCalendarStore?.snapshot(it.code) }
+            calendarError = refreshed.calendarError
+            terms = knownTerms(platform)
+            val errors = buildList {
+                (refreshed.schedule as? UpdateResult.Failure)?.let { add(it.message + if (snapshot != null) "；已保留这个学期的课表。" else "；这个学期暂无可用课表。") }
+                refreshed.calendarError?.let { add(it) }
+                addAll(refreshed.integrationErrors)
             }
-            when (val result = refreshed.schedule) {
-                is UpdateResult.Success -> {
-                    snapshot = result.snapshot
-                    failure = false
-                    message = refreshed.integrationErrors.takeIf { it.isNotEmpty() }?.joinToString("\n")
-                    failure = refreshed.integrationErrors.isNotEmpty()
-                }
-                is UpdateResult.Failure -> {
-                    failure = true
-                    message = result.message + "；当前显示上次保存的课表，请留意同步时间。"
-                }
-            }
+            failure = errors.isNotEmpty()
+            message = if (errors.isEmpty()) null else errors.joinToString("\n")
             noticeSnapshot = refreshed.notices
             noticeError = refreshed.noticeError
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) {
             failure = true
-            message = "连接未完成，请重新登录后同步；上次保存的数据已保留。"
-        } finally { busy = false; syncing = false }
+            message = "同步未完成，请检查网络或重新连接教务；已保存的数据保留。"
+        } finally { busy = false; syncing = false; syncGate.release() }
     }
-    LaunchedEffect(authenticated, foreground) {
+    LaunchedEffect(authenticated, foreground, repository, generation) {
         if (authenticated && foreground) {
-            snapshot = platform.repository.snapshot()
+            snapshot = selectedSnapshot()
             noticeSnapshot = platform.noticeStore?.snapshot()
-            nextAutoSync = 0L
+            if (!syncGate.running.value) syncGate.nextCheckMillis = 0L
         }
     }
-    LaunchedEffect(authenticated) {
+    LaunchedEffect(authenticated, repository, generation) {
         if (authenticated) {
             while (isActive) {
-                if (currentForeground && !busy && System.currentTimeMillis() >= nextAutoSync) {
-                    nextAutoSync = System.currentTimeMillis() + 5 * 60 * 1000L
+                if (currentForeground && !busy && !syncGate.running.value && System.currentTimeMillis() >= syncGate.nextCheckMillis) {
+                    syncGate.nextCheckMillis = System.currentTimeMillis() + 5 * 60 * 1000L
                     syncSchool()
                 }
                 delay(1000L)
@@ -199,7 +217,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                     else null
                 }
             }
-            snapshot = platform.repository.snapshot()
+            snapshot = selectedSnapshot()
             noticeSnapshot = platform.noticeStore?.snapshot()
             noticeError = platform.noticeStore?.loadError
             authenticated = platform.sessionReady
@@ -229,7 +247,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                 if (restored) {
                     authenticated = platform.sessionReady
                     savedLogin = true
-                    snapshot = platform.repository.snapshot()
+                    snapshot = selectedSnapshot()
                     noticeSnapshot = platform.noticeStore?.snapshot()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
@@ -251,36 +269,47 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
         }
         platform.integrationFeedback?.collect { feedback ->
             if (feedback != null) {
-                snapshot = platform.repository.snapshot()
+                snapshot = selectedSnapshot()
                 message = feedback.message; failure = feedback.error
                 platform.consumeFeedback(feedback.id)
             }
         }
     }
     fun loginSchool() {
-        if (busy) return
+        if (busy || syncGate.running.value) return
         val login = SavedLogin(account.trim(), password)
         password = ""
         scope.launch { authenticate(login, true) }
     }
     suspend fun receiveFile(bytes: ByteArray?, error: String?) {
+        val owner = platform.repository
         try {
-                if (error != null) { failure = true; message = error; return }
-                if (bytes == null) return
-                busy = true
-                val result = withContext(Dispatchers.IO) { platform.repository.importXls(bytes) }
-                when (result) {
-                    is UpdateResult.Success -> {
-                        snapshot = result.snapshot
-                        failure = false
-                        message = null
-                    }
-                    is UpdateResult.Failure -> {
-                        failure = true
-                        message = result.message + "；原有课表已保留。"
-                    }
+            if (error != null) { failure = true; message = error; return }
+            if (bytes == null) return
+            busy = true
+            val result = withContext(Dispatchers.IO) { owner.importXls(bytes) }
+            if (platform.repository !== owner) return
+            when (result) {
+                is UpdateResult.Success -> {
+                    val importedTerm = termFor(result.snapshot.termCode)
+                    var preferenceFailed = false
+                    try { if (importedTerm != null) persistTermSelection(platform, importedTerm, owner) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { preferenceFailed = true }
+                    if (platform.repository !== owner) return
+                    selectedTerm = importedTerm
+                    explicitTerm = importedTerm
+                    snapshot = result.snapshot
+                    calendarSnapshot = importedTerm?.let { platform.academicCalendarStore?.snapshot(it.code) }
+                    terms = knownTerms(platform)
+                    failure = preferenceFailed
+                    message = if (preferenceFailed) "课表已导入，但学期选择无法保存，下次打开可能需要重新选择" else null
                 }
-        } finally { busy = false }
+                is UpdateResult.Failure -> { failure = true; message = result.message + "；原有课表已保留。" }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { failure = true; message = "文件导入未完成，请重试" }
+        finally { busy = false }
     }
     LaunchedEffect(platform) {
         platform.selections?.collect { selection ->
@@ -291,7 +320,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
         }
     }
     fun importFile() {
-        if (busy) return
+        if (busy || syncGate.running.value) return
         busy = true
         platform.chooseXls { bytes, error ->
             scope.launch { receiveFile(bytes, error) }
@@ -299,29 +328,13 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
     }
     val theme = remember { ThemeController(ColorSchemeMode.MonetSystem) }
     MiuixTheme(controller = theme) {
-        Scaffold(
-            topBar = {
-                SmallTopAppBar(title = "岐黄课表", titlePadding = 16.dp, actionIconPadding = 12.dp, actions = {
-                    val spin = if (syncing) {
-                        val transition = rememberInfiniteTransition()
-                        transition.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing))).value
-                    } else 0f
-                    IconButton(onClick = { if (authenticated) scope.launch { syncSchool() } else { page = 2; message = "请登录教务系统，之后打开应用会自动同步"; failure = false } },
-                        enabled = !busy, modifier = Modifier.size(44.dp)) {
-                        Icon(MiuixIcons.Refresh,
-                            contentDescription = "同步",
-                            modifier = Modifier.size(24.dp).rotate(spin), tint = if (syncing) Muted else Ink)
-                    }
-                })
-            },
-            bottomBar = {
-                NavigationBar(showDivider = false) {
-                    listOf(MiuixIcons.Months, MiuixIcons.Messages, MiuixIcons.Link).forEachIndexed { index, icon ->
-                        NavigationBarItem(selected = page == index, onClick = { page = index }, icon = icon,
-                            label = listOf("我的课表", "调课通知", "连接教务")[index])
-                    }
+        AdaptiveAppScaffold(desktop = platform.desktop, page = page, onNavigate = { page = it },
+            status = if (authenticated) "已连接教务 · 前台自动同步" else "离线查看", topBar = {
+                AppTopBar(platform.desktop, page, syncing || sharedSyncing, !busy && !sharedSyncing) {
+                    if (authenticated) scope.launch { syncSchool() }
+                    else { page = 2; message = "请登录教务系统，之后打开应用会自动同步"; failure = false }
                 }
-            }
+            },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
                 Spacer(Modifier.height(8.dp))
@@ -338,36 +351,32 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                         (fadeIn(tween(200)) + slideInHorizontally(tween(240)) { direction * it / 12 }) togetherWith
                             (fadeOut(tween(140)) + slideOutHorizontally(tween(240)) { -direction * it / 12 })
                     }, label = "page") { destination ->
+                  pageStateHolder.SaveableStateProvider(destination) {
                   Column(Modifier.fillMaxSize()) {
                    when (destination) {
                     0 -> {
                         val current = snapshot
                         if (current == null) {
+                            selectedTerm?.let { Text(it.label, fontSize = 13.sp, color = Muted); Text("这个学期还没有缓存课表", color = Muted) }
                             EmptySchedule({ platform.openSchool() }, { importFile() })
                         } else {
                             val week = ChronoUnit.WEEKS.between(LocalDate.parse(current.weekOneMonday), monday) + 1
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(current.termLabel, fontSize = 12.sp, color = Muted)
+                                    if (!LocalAppLayout.current.shortWindow) Text(current.termLabel, fontSize = 12.sp, color = Muted)
                                     Text("${monday.monthValue}/${monday.dayOfMonth} — ${monday.plusDays(6).monthValue}/${monday.plusDays(6).dayOfMonth}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink, maxLines = 1)
                                     Text(if (week > 0 && monday.toString() <= current.calendarEndDate) "第 $week 周" else "所选日期不在导入的教学周内", color = Muted, fontSize = 12.sp)
                                 }
-                                IconButton(onClick = { monday = monday.minusWeeks(1) }, modifier = Modifier.size(40.dp)) {
-                                    Icon(MiuixIcons.ChevronBackward, contentDescription = "上一周", modifier = Modifier.size(20.dp), tint = Ink)
-                                }
-                                TextButton("本周", { monday = today.minusDays((today.dayOfWeek.value - 1).toLong()) },
-                                    minWidth = 48.dp, minHeight = 36.dp, insideMargin = PaddingValues(horizontal = 8.dp))
-                                IconButton(onClick = { monday = monday.plusWeeks(1) }, modifier = Modifier.size(40.dp)) {
-                                    Icon(MiuixIcons.ChevronForward, contentDescription = "下一周", modifier = Modifier.size(20.dp), tint = Ink)
-                                }
+                                PeriodNavigation("本周", "上一周", "下一周", { monday = monday.minusWeeks(1) },
+                                    { monday = today.minusDays((today.dayOfWeek.value - 1).toLong()) }, { monday = monday.plusWeeks(1) })
                             }
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.height(if (LocalAppLayout.current.shortWindow) 2.dp else 10.dp))
                             val formatted = runCatching {
                                 Instant.parse(current.retrievedAt).atZone(Shanghai).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
                             }.getOrDefault(current.retrievedAt)
                             Text(if (current.source == "school") "上次教务同步 · $formatted${if (!authenticated) "  ／  请登录检查更新" else ""}" else "文件导入 · $formatted  ／  请同步确认最新安排", fontSize = 12.sp, color = Muted)
-                            if (current.periods.isEmpty()) Text("作息时间待同步", fontSize = 11.sp, color = Muted)
-                            Spacer(Modifier.height(8.dp))
+                            if (current.periods.isEmpty() && !LocalAppLayout.current.shortWindow) Text("作息时间待同步", fontSize = 11.sp, color = Muted)
+                            Spacer(Modifier.height(if (LocalAppLayout.current.shortWindow) 2.dp else 8.dp))
                             AnimatedContent(targetState = monday, modifier = Modifier.weight(1f),
                                 transitionSpec = {
                                     val direction = if (targetState > initialState) 1 else -1
@@ -378,30 +387,21 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             }
                         }
                     }
-                    1 -> Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("通知仅供查阅，课程安排以重新获取的课表为准。", fontSize = 13.sp, color = Muted)
-                        noticeError?.let { Text(it, color = Color(0xFF9D3829), fontSize = 13.sp) }
-                        val saved = noticeSnapshot
-                        if (saved == null) Text("登录并同步后显示学校调课通知。", color = Ink)
-                        else {
-                            Text("上次通知同步 · ${formatInstant(saved.retrievedAt)}", color = Muted, fontSize = 12.sp)
-                            val notices = remember(saved) { NoticeParser().parse(saved.records) }
-                            if (notices.isEmpty()) Text("这次获取的消息中没有调课、停课或补课通知。", color = Ink)
-                            notices.forEach { notice ->
-                                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
-                                    Text(notice.publishedAt + if (notice.duplicateCount > 1) " · 合并 ${notice.duplicateCount} 条相同通知" else "", fontSize = 12.sp, color = Muted)
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(notice.text, color = Ink, fontSize = 14.sp, lineHeight = 22.sp)
-                                }
-                            }
-                        }
-                    }
-                    2 -> Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                    3 -> AcademicCalendarPanel(calendarSnapshot, selectedTerm, authenticated, busy || sharedSyncing, calendarError, today, Modifier.weight(1f), onConnect = { page = 2 })
+                    1 -> NoticePanel(noticeSnapshot, noticeError, Modifier.weight(1f))
+                    2 -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                      Column(Modifier.widthIn(max = 720.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                      Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                        Text("学期", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(selectedTerm?.label ?: "连接教务后获取学期", color = Muted)
+                        TextButton("选择学期", { pickingTerm = true }, enabled = !busy && !sharedSyncing && terms.isNotEmpty())
+                        Text("同时控制课表和校历", fontSize = 13.sp, color = Muted)
+                      }
                       Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
                         Text("从教务系统获取课表", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Ink)
                         Spacer(Modifier.height(16.dp))
                         if (platform.webLoginAvailable) {
-                            TextButton("网页登录教务系统", { platform.openWebLogin(account) }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+                            TextButton("网页登录教务系统", { platform.openWebLogin(account) }, modifier = Modifier.fillMaxWidth(), enabled = !busy && !sharedSyncing)
                             Spacer(Modifier.height(16.dp))
                         }
                         if (platform.school != null) {
@@ -409,7 +409,7 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             Spacer(Modifier.height(12.dp))
                             LoginField("密码", password, { password = it }, "password", true)
                             Spacer(Modifier.height(16.dp))
-                            TextButton(if (busy) "连接中…" else "登录并同步", { loginSchool() }, enabled = !busy && account.isNotBlank() && password.isNotEmpty())
+                            TextButton(if (busy) "连接中…" else "登录并同步", { loginSchool() }, enabled = !busy && !sharedSyncing && account.isNotBlank() && password.isNotEmpty())
                             Spacer(Modifier.height(12.dp))
                             Text("账号加密保存在本机，打开应用自动登录同步。", fontSize = 13.sp, color = Muted)
                             Spacer(Modifier.height(8.dp))
@@ -428,13 +428,14 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                                     } catch (_: Exception) { failure = true; message = "登录信息清理失败，请重试" }
                                     finally { busy = false }
                                 }
-                            }, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                            }, enabled = !busy && !sharedSyncing, modifier = Modifier.fillMaxWidth())
                         }
                         Spacer(Modifier.height(16.dp))
                         TextButton("打开教务系统", { platform.openSchool() }, modifier = Modifier.fillMaxWidth())
                         Spacer(Modifier.height(12.dp))
-                        TextButton("导入官方 XLS 文件", { importFile() }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
-                        val current = snapshot
+                        TextButton("导入官方 XLS 文件", { importFile() }, modifier = Modifier.fillMaxWidth(), enabled = !busy && !sharedSyncing)
+                        val current = snapshot?.takeIf { !platform.currentTermOnlyIntegrations || it.termCode == platform.academicCalendarStore?.availableTerms()?.currentCode }
+                        if (snapshot != null && current == null && platform.calendarActionLabel != null) Text("系统日历和小爱自动管理仅用于学校当前学期", fontSize = 13.sp, color = Muted)
                         if (current != null && platform.calendarActionLabel != null) {
                             Spacer(Modifier.height(12.dp))
                             TextButton(platform.calendarActionLabel!!, { platform.importCalendar(current) },
@@ -463,17 +464,48 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             TextButton("关于岐黄课表", { platform.openAbout() }, modifier = Modifier.fillMaxWidth())
                         }
                       }
+                      }
                     }
                 }
+                  }
                   }
                 }
                 Spacer(Modifier.height(8.dp))
             }
         }
+    WindowDialog(show = pickingTerm, title = "选择学期", onDismissRequest = { pickingTerm = false }) {
+        Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+            terms.forEach { term ->
+                TextButton(term.label, {
+                    pickingTerm = false
+                    scope.launch {
+                        if (busy || !syncGate.acquire()) return@launch
+                        val owner = repository
+                        busy = true
+                        var refresh = false
+                        try {
+                            persistTermSelection(platform, term, owner)
+                            explicitTerm = term
+                            selectedTerm = term
+                            snapshot = owner.snapshot(term.code)
+                            calendarSnapshot = platform.academicCalendarStore?.snapshot(term.code)
+                            calendarError = null
+                            message = null
+                            refresh = platform.sessionReady
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (_: Exception) { message = "学期选择保存失败，请重试"; failure = true }
+                        finally { busy = false; syncGate.release() }
+                        if (refresh && platform.repository === owner) syncSchool(owner)
+                    }
+                }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+
     }
 }
 
-private fun formatInstant(value: String) = runCatching {
+internal fun formatInstant(value: String) = runCatching {
     Instant.parse(value).atZone(Shanghai).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
 }.getOrDefault(value)
 
@@ -557,12 +589,17 @@ private fun courseBlocks(lessons: List<Lesson>): List<CourseBlock> {
 
 @Composable
 private fun WeekBoard(snapshot: ScheduleSnapshot, monday: LocalDate, today: LocalDate, modifier: Modifier) {
-    var selected by remember(snapshot, monday) { mutableStateOf<Lesson?>(null) }
-    val axisWidth = 42.dp
-    val rowHeight = 64.dp
+    val layout = LocalAppLayout.current
+    var selectedKey by rememberSaveable(snapshot.termCode, monday.toString()) { mutableStateOf<String?>(null) }
+    val selected = snapshot.lessons.firstOrNull { lessonSelectionKey(it) == selectedKey }
+    val axisWidth = if (layout.navigation == NavigationMode.Bottom) 42.dp else 54.dp
+    val rowHeight = layout.rowHeight
     val line = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f)
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.surface)) {
-        Row(Modifier.fillMaxWidth().height(44.dp)) {
+    Row(modifier.fillMaxSize().onPreviewKeyEvent { event ->
+        if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && selectedKey != null) { selectedKey = null; true } else false
+    }, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.surface)) {
+        Row(Modifier.fillMaxWidth().height(if (layout.shortWindow) 36.dp else 44.dp)) {
             Box(Modifier.width(axisWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Text("节次", fontSize = 10.sp, color = Muted)
             }
@@ -611,12 +648,12 @@ private fun WeekBoard(snapshot: ScheduleSnapshot, monday: LocalDate, today: Loca
                         Box(Modifier.offset(x = width * block.lane, y = rowHeight * (block.start - 1))
                             .width(width).height(rowHeight * (block.end - block.start + 1)).padding(3.dp)
                             .clip(RoundedCornerShape(8.dp)).background(tint.copy(alpha = if (isSystemInDarkTheme()) 0.25f else 0.12f))
-                            .clickable { selected = block.lesson }.padding(horizontal = 3.dp, vertical = 6.dp)) {
+                            .clickable { selectedKey = lessonSelectionKey(block.lesson) }.padding(horizontal = 3.dp, vertical = 6.dp)) {
                             Column(Modifier.fillMaxSize()) {
-                                Text(block.lesson.name, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium,
+                                Text(block.lesson.name, fontSize = if (layout.navigation == NavigationMode.Bottom) 11.sp else 13.sp, lineHeight = if (layout.navigation == NavigationMode.Bottom) 14.sp else 17.sp, fontWeight = FontWeight.Medium,
                                     color = Ink, overflow = TextOverflow.Ellipsis, maxLines = if (block.end > block.start) 5 else 2)
                                 Spacer(Modifier.height(4.dp))
-                                Text(block.lesson.location, fontSize = 9.sp, lineHeight = 12.sp,
+                                Text(block.lesson.location, fontSize = if (layout.navigation == NavigationMode.Bottom) 9.sp else 11.sp, lineHeight = 14.sp,
                                     color = Muted, overflow = TextOverflow.Ellipsis, maxLines = 3)
                             }
                         }
@@ -627,20 +664,31 @@ private fun WeekBoard(snapshot: ScheduleSnapshot, monday: LocalDate, today: Loca
           }
         }
     }
-    val lesson = selected
-    WindowDialog(show = lesson != null, title = lesson?.name, onDismissRequest = { selected = null }) {
-        if (lesson != null) {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("${lesson.date}  第 ${lesson.sections.joinToString("、")} 节", color = Muted, fontSize = 14.sp)
-                val times = lesson.sections.mapNotNull { section -> snapshot.periods.firstOrNull { it.section == section } }
-                if (times.isNotEmpty()) Text(times.joinToString("\n") { "第 ${it.section} 节  ${it.start}–${it.end}" }, fontSize = 14.sp)
-                Text(lesson.location.ifBlank { "教室未提供" })
-                if (lesson.teachers.isNotBlank()) Text(lesson.teachers)
-                if (lesson.kind.isNotBlank()) Text(lesson.kind, color = Muted, fontSize = 14.sp)
-                if (lesson.content.isNotBlank()) Text(lesson.content, fontSize = 14.sp, lineHeight = 22.sp)
-            }
-            Spacer(Modifier.height(16.dp))
-            TextButton("关闭详情", { selected = null }, modifier = Modifier.fillMaxWidth())
-        }
+    if (layout.details) Column(Modifier.width(288.dp).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(MiuixTheme.colorScheme.surface).padding(20.dp).testTag("course-detail-pane")) {
+        Text("课程详情", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+        if (selected == null) Text("选择课程查看完整安排", color = Muted)
+        else LessonDetails(selected, snapshot, { selectedKey = null }, Modifier.weight(1f))
+    }
+    }
+    WindowDialog(show = selected != null && !layout.details, title = selected?.name, onDismissRequest = { selectedKey = null }) {
+        selected?.let { LessonDetails(it, snapshot, { selectedKey = null }, Modifier.heightIn(max = 420.dp)) }
+    }
+}
+
+private fun lessonSelectionKey(lesson: Lesson) = listOf(lesson.date, lesson.sections.joinToString(","), lesson.name, lesson.teachers, lesson.location).joinToString("\u001f")
+
+@Composable
+private fun LessonDetails(lesson: Lesson, snapshot: ScheduleSnapshot, close: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(lesson.name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("${lesson.date}  第 ${lesson.sections.joinToString("、")} 节", color = Muted, fontSize = 14.sp)
+        val times = lesson.sections.mapNotNull { section -> snapshot.periods.firstOrNull { it.section == section } }
+        if (times.isNotEmpty()) Text(times.joinToString("\n") { "第 ${it.section} 节  ${it.start}–${it.end}" }, fontSize = 14.sp)
+        Text(lesson.location.ifBlank { "教室未提供" })
+        if (lesson.teachers.isNotBlank()) Text(lesson.teachers)
+        if (lesson.kind.isNotBlank()) Text(lesson.kind, color = Muted, fontSize = 14.sp)
+        if (lesson.content.isNotBlank()) Text(lesson.content, fontSize = 14.sp, lineHeight = 22.sp)
+        TextButton("关闭详情", close, modifier = Modifier.fillMaxWidth())
     }
 }

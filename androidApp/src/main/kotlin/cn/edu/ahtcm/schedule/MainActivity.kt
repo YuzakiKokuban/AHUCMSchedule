@@ -33,6 +33,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val actions = object : PlatformActions {
+            override val syncGate = model.syncGate
+            override val currentTermOnlyIntegrations = true
+            override val termSelection get() = model.storage.termSelection
             override val aboutAvailable = true
             override fun openAbout() { startActivity(Intent(this@MainActivity, com.yuzakikokuban.ahucm.update.AboutActivity::class.java)) }
             override val webLoginAvailable = true
@@ -51,6 +54,7 @@ class MainActivity : ComponentActivity() {
             override val credentials = model.credentials
             override val sessionReady get() = model.storage.matchesSession(model.school)
             override val noticeStore get() = model.storage.notices
+            override val academicCalendarStore get() = model.storage.academicCalendar
             override fun selectAccount(account: String) { model.storage.select(account) }
             override val foreground = model.foreground
             override val selections = model.selections
@@ -95,6 +99,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         override fun clear() = passwordStore.clear()
     }
     val school = SchoolClient()
+    val syncGate = SyncGate()
     val browserSessions = AndroidBrowserSessionStore(application)
     val sessionGeneration = MutableStateFlow(0L)
     val calendar = AndroidCalendarSync(application)

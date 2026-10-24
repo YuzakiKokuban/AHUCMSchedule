@@ -156,19 +156,35 @@ class SchoolClient(private val transport: SchoolTransport = SchoolHttpTransport(
 
     @Synchronized fun downloadTimetable(): ByteArray = download(false).xls
 
-    @Synchronized fun downloadSchoolTimetable(): SchoolTimetable = download(true)
+    @Synchronized fun downloadSchoolTimetable(term: AcademicTerm? = null): SchoolTimetable = download(true, term)
 
-    private fun download(requirePeriods: Boolean): SchoolTimetable {
+    @Synchronized fun fetchAcademicCalendarTerms(): AcademicCalendarTerms = AcademicCalendarParser.terms(
+        request(SchoolRequest("$school/new/student/xlxx/xlxxlist.page", referer = welcome)).text()
+    )
+
+    @Synchronized fun fetchAcademicCalendar(term: AcademicTerm): AcademicCalendarSnapshot {
+        require(term in fetchAcademicCalendarTerms().terms) { "Unknown academic term" }
+        val response = request(SchoolRequest("$school/new/xlxx/data", "POST", encode(mapOf("xnxqdm" to term.code)), "$school/new/student/xlxx/xlxxlist.page"))
+        return AcademicCalendarParser.parse(response.text(), term)
+    }
+
+    private fun download(requirePeriods: Boolean, requestedTerm: AcademicTerm? = null): SchoolTimetable {
         val main = request(SchoolRequest("$school/new/student/xsgrkb/main.page", referer = welcome)).text()
-        val term = Regex("/new/student/xsgrkb/week\\.page\\?xnxqdm=(20\\d{4})").find(main)?.groupValues?.get(1)
+        val currentTerm = Regex("/new/student/xsgrkb/week\\.page\\?xnxqdm=(20\\d{4})").find(main)?.groupValues?.get(1)
             ?: throw SchoolException("登录已失效或学校课表页面已变化")
+        val term = requestedTerm?.code ?: currentTerm
         val weekUrl = "$school/new/student/xsgrkb/week.page?xnxqdm=$term"
         val html = request(SchoolRequest(weekUrl, referer = welcome)).text()
         val periods = if (requirePeriods) SchoolPeriodParser.parse(html) else emptyList()
         val doc = Jsoup.parse(html)
-        val selected = doc.selectFirst("select#xnxqdm option[selected]")
+        val selected = doc.select("select#xnxqdm option[selected]").singleOrNull()
             ?: throw SchoolException("未获取到当前学期")
-        if (selected.attr("value") != term) throw SchoolException("学校返回学期不一致，已保留原课表")
+        val expectedTerm = requestedTerm ?: runCatching {
+            val year = term.take(4).toInt()
+            AcademicTerm(term, "$year-${year + 1}-${term.last()}")
+        }.getOrElse { throw SchoolException("学校返回学期不一致，已保留原课表") }
+        if (selected.attr("value") != expectedTerm.code || selected.text().trim() != expectedTerm.label)
+            throw SchoolException("学校返回学期不一致，已保留原课表")
         val query = encode(linkedMapOf("xnxqdm" to term, "xnxqmc" to selected.text(), "zc" to "", "expname" to "download"))
         val bytes = request(SchoolRequest("$school/new/printkb/prtxskb?$query", referer = weekUrl)).bytes
         val parsed = try { XlsScheduleImporter().parse(bytes) }

@@ -6,6 +6,7 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.channels.FileChannel
 import java.nio.ByteBuffer
+import java.util.concurrent.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -25,6 +26,8 @@ class ScheduleRepository(private val directory: Path) {
         val current = catalog
         return current.terms[current.activeTerm]
     }
+    fun snapshot(termCode: String): ScheduleSnapshot? = catalog.terms[termCode]
+    fun snapshots(): List<ScheduleSnapshot> = catalog.terms.values.sortedByDescending { it.termCode }
     @Synchronized fun importXls(bytes: ByteArray): UpdateResult = update(bytes, "file")
 
     @Synchronized fun synchronize(fetch: () -> ByteArray): UpdateResult = try {
@@ -33,15 +36,18 @@ class ScheduleRepository(private val directory: Path) {
         UpdateResult.Failure("无法获取最新课表，请检查网络或重新登录教务系统")
     }
 
-    @Synchronized fun synchronizeSchool(fetch: () -> SchoolTimetable): UpdateResult = try {
+    @Synchronized fun synchronizeSchool(beforeCommit: () -> Unit = {}, fetch: () -> SchoolTimetable): UpdateResult = try {
+        beforeCommit()
         val downloaded = fetch()
         validatePeriods(downloaded.periods)
-        update(downloaded.xls, "school", downloaded.periods)
+        update(downloaded.xls, "school", downloaded.periods, beforeCommit)
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         UpdateResult.Failure("课表或作息时间获取失败，已保留上次课表")
     }
 
-    private fun update(bytes: ByteArray, source: String, periods: List<ClassPeriod> = emptyList()): UpdateResult {
+    private fun update(bytes: ByteArray, source: String, periods: List<ClassPeriod> = emptyList(), beforeCommit: () -> Unit = {}): UpdateResult {
         val snapshot = try {
             val parsed = XlsScheduleImporter().parse(bytes)
             val retainedPeriods = if (source == "file") catalog.terms[parsed.termCode]?.periods.orEmpty() else periods
@@ -58,10 +64,13 @@ class ScheduleRepository(private val directory: Path) {
                 while (buffer.hasRemaining()) channel.write(buffer)
                 channel.force(true)
             }
+            beforeCommit()
             Files.move(pending, cache, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             catalog = next
             loadError = null
             return UpdateResult.Success(snapshot)
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             return UpdateResult.Failure("本地课表保存失败，未替换现有课表")
         } finally {

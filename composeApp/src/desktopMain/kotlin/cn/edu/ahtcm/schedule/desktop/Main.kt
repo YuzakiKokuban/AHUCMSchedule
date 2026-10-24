@@ -14,6 +14,7 @@ import cn.edu.ahtcm.schedule.core.ScheduleRepository
 import cn.edu.ahtcm.schedule.core.SchoolClient
 import cn.edu.ahtcm.schedule.core.NoticeStore
 import cn.edu.ahtcm.schedule.core.AccountStorage
+import cn.edu.ahtcm.schedule.ui.SyncGate
 import cn.edu.ahtcm.schedule.ui.App
 import cn.edu.ahtcm.schedule.ui.PlatformActions
 import java.awt.Desktop
@@ -29,6 +30,9 @@ fun main() {
     val feedback = MutableStateFlow<IntegrationFeedback?>(null)
     val sequence = AtomicLong()
     val actions = object : PlatformActions {
+        override val desktop = true
+        override val syncGate = SyncGate()
+        override val termSelection get() = storage.termSelection
         override val credentials = EncryptedCredentialStore(directory.resolve("login.bin"), WindowsCredentialProtector())
         override val integrationFeedback = feedback
         override fun consumeFeedback(id: Long) { if(feedback.value?.id==id) feedback.value=null }
@@ -50,6 +54,7 @@ fun main() {
         override val school = SchoolClient()
         override val sessionReady get() = storage.matchesSession(school)
         override val noticeStore get() = storage.notices
+        override val academicCalendarStore get() = storage.academicCalendar
         override fun selectAccount(account: String) { storage.select(account) }
         override fun openSchool() { Desktop.getDesktop().browse(URI("https://jwxt.ahtcm.edu.cn/new/welcome.page?ui=new")) }
         override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) {
