@@ -19,6 +19,24 @@ import org.junit.Test
 class AppTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun `about entry delegates to supported platform without school login`() {
+        val directory = Files.createTempDirectory("ahu-about")
+        try {
+            var opened = false
+            val actions = object : PlatformActions {
+                override val repository = ScheduleRepository(directory)
+                override val aboutAvailable = true
+                override fun openAbout() { opened = true }
+                override fun openSchool() = Unit
+                override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) = Unit
+            }
+            compose.setContent { App(actions) }
+            compose.onNodeWithText("连接教务").performClick()
+            compose.onNodeWithText("关于岐黄课表").performScrollTo().performClick()
+            compose.runOnIdle { org.junit.Assert.assertTrue(opened) }
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     @Test fun `module area follows activation and hides again on service loss`() {
         val directory = Files.createTempDirectory("ahu-module-active")
         try {

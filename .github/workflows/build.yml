@@ -50,11 +50,10 @@ jobs:
           node --test androidApp/src/test/node/managed-sync.test.cjs
       - name: Test core and Android
         run: ./gradlew :core:test :androidApp:testDebugUnitTest --console=plain
-      - name: Build debug APK
+      - name: Compile unsigned PR APK
         if: ${{ !inputs.signed-release }}
         run: |
           ./gradlew :androidApp:assembleDebug --console=plain
-          python3 tools/ci/package_build.py android --variant debug
       - name: Restore release signing
         if: inputs.signed-release
         env:
@@ -71,11 +70,13 @@ jobs:
           ./gradlew :androidApp:assembleRelease --console=plain
           python3 tools/ci/package_build.py android --variant release
       - name: Verify APK signature
+        if: inputs.signed-release
         run: '"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose outputs/*.apk'
       - name: Verify release signing identity
         if: inputs.signed-release
         run: python3 tools/ci/verify_apk_signer.py outputs/*.apk
       - name: Upload Android package
+        if: inputs.signed-release
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-${{ inputs.signed-release && 'release' || 'debug' }}

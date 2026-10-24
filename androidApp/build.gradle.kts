@@ -1,4 +1,6 @@
 import java.util.Properties
+import java.security.KeyStore
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -29,7 +31,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     sourceSets["main"].kotlin.directories.add("../composeApp/src/jvmSharedMain/kotlin")
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     signingConfigs {
         val environmentStore = providers.environmentVariable("AHUCM_KEYSTORE_PATH").orNull
         val keystorePath = environmentStore ?: localProps.getProperty("ahucm.release.storeFile")
@@ -46,6 +48,11 @@ android {
         }
     }
     buildTypes {
+        getByName("debug") {
+            // All installable app variants use the same official certificate.
+            // Without that key, builds remain unsigned instead of changing identity.
+            signingConfig = signingConfigs.findByName("release")
+        }
         getByName("release") {
             signingConfig = signingConfigs.findByName("release")
             // Keep the module entry and META-INF/xposed declarations intact.
@@ -54,6 +61,20 @@ android {
     }
     packaging.resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
 
+}
+
+tasks.matching { it.name == "validateSigningDebug" || it.name == "validateSigningRelease" }.configureEach {
+    doFirst {
+        val signing = android.signingConfigs.findByName("release") ?: return@doFirst
+        val store = KeyStore.getInstance(signing.storeType ?: "PKCS12")
+        requireNotNull(signing.storeFile).inputStream().use { store.load(it, signing.storePassword?.toCharArray()) }
+        val certificate = requireNotNull(store.getCertificate(signing.keyAlias)) { "Signing certificate is missing" }
+        val fingerprint = MessageDigest.getInstance("SHA-256").digest(certificate.encoded)
+            .joinToString("") { "%02x".format(it) }
+        require(fingerprint == rootProject.file("release-signing-certificate.sha256").readText().trim().lowercase()) {
+            "Signing certificate must match the existing official application"
+        }
+    }
 }
 
 dependencies {

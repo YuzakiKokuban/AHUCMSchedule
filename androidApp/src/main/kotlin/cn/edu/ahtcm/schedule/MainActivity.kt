@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val actions = object : PlatformActions {
+            override val aboutAvailable = true
+            override fun openAbout() { startActivity(Intent(this@MainActivity, com.yuzakikokuban.ahucm.update.AboutActivity::class.java)) }
             override val webLoginAvailable = true
             override fun openWebLogin(account: String) {
                 webLogin.launch(Intent(this@MainActivity,SchoolWebLoginActivity::class.java).putExtra("account",account))
