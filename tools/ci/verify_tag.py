@@ -1,16 +1,19 @@
 """Reject moved release tags before publishing their immutable build assets."""
 import argparse
 import json
-import re
 import subprocess
+
+from release_version import VersionError, parse_tag
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--repo", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--commit", required=True)
 args = parser.parse_args()
-if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", args.tag):
-    raise SystemExit("Invalid release tag")
+try:
+    parse_tag(args.tag)
+except VersionError as error:
+    raise SystemExit(str(error)) from error
 
 def api(path):
     return json.loads(subprocess.check_output(["gh", "api", path]))

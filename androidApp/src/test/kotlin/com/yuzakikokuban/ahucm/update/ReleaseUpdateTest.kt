@@ -18,6 +18,15 @@ class ReleaseUpdateTest {
         assertEquals("0.4.10", ReleaseUpdate.parse(release("0.4.10"), "0.4.9")!!.version)
         assertNull(ReleaseUpdate.parse(release("0.4.1-beta"), "0.4.0"))
     }
+    @Test fun `candidate releases rank below their finished release`() {
+        assertEquals("0.6.0", ReleaseUpdate.parse(release("0.6.0"), "0.6.0-rc.1")!!.version)
+        assertEquals("0.6.0", ReleaseUpdate.parse(release("0.6.0"), "0.6.0-beta.9")!!.version)
+        assertNull(ReleaseUpdate.parse(release("0.6.0-rc.1"), "0.6.0"))
+        assertNull(ReleaseUpdate.parse(release("0.6.0-rc.1"), "0.6.0-rc.1"))
+        assertEquals("0.6.0-rc.2", ReleaseUpdate.parse(release("0.6.0-rc.2"), "0.6.0-rc.1")!!.version)
+        assertEquals("0.6.0-rc.1", ReleaseUpdate.parse(release("0.6.0-rc.1"), "0.6.0-beta.9")!!.version)
+        assertNull(ReleaseUpdate.parse(release("0.6.0-beta.9"), "0.6.0-rc.1"))
+    }
     @Test fun `official release exposes download digest and notes`() {
         val result = ReleaseUpdate.parse(release(), "0.4.0")!!
         assertEquals(digest, result.sha256)

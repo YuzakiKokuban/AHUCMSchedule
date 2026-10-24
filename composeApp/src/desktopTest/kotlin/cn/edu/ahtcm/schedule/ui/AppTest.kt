@@ -37,6 +37,38 @@ class AppTest {
         } finally { directory.toFile().deleteRecursively() }
     }
 
+    @Test fun `connection page creates the desktop widget through the platform`() {
+        val directory = Files.createTempDirectory("ahu-widget-entry")
+        try {
+            var added = 0
+            val actions = object : PlatformActions {
+                override val repository = ScheduleRepository(directory)
+                override val widgetAvailable = true
+                override fun addWidget() { added += 1 }
+                override fun openSchool() = Unit
+                override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) = Unit
+            }
+            compose.setContent { App(actions, LocalDate.parse("2026-10-21")) }
+            compose.onNodeWithText("连接教务").performClick()
+            compose.onNodeWithText("创建桌面小组件").performScrollTo().performClick()
+            compose.runOnIdle { kotlin.test.assertEquals(1, added) }
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `desktop widget entry stays hidden when the platform has no widget support`() {
+        val directory = Files.createTempDirectory("ahu-widget-hidden")
+        try {
+            val actions = object : PlatformActions {
+                override val repository = ScheduleRepository(directory)
+                override fun openSchool() = Unit
+                override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) = Unit
+            }
+            compose.setContent { App(actions, LocalDate.parse("2026-10-21")) }
+            compose.onNodeWithText("连接教务").performClick()
+            compose.onNodeWithText("创建桌面小组件").assertDoesNotExist()
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     @Test fun `module area follows activation and hides again on service loss`() {
         val directory = Files.createTempDirectory("ahu-module-active")
         try {

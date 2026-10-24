@@ -1,12 +1,15 @@
 name: Release
 
 on:
+  # Any v-prefixed tag push starts the release pipeline. The tag is the release
+  # version source: validate resolves versionName/versionCode/prerelease from it,
+  # then the build injects those facts before producing the signed packages.
   push:
-    tags: ['v*.*.*']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag (for example v0.4.0)
+        description: Existing version tag (for example v0.6.1 or v0.7.0-rc.1)
         required: true
         type: string
 
@@ -14,6 +17,9 @@ permissions:
   contents: read
 
 concurrency:
+  # A release publishes a draft and then writes the version back to main.
+  # Runs are queued instead of replaced: cancelling halfway can leave the
+  # release and the development branch disagreeing about the current version.
   group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
@@ -22,18 +28,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.source.outputs.commit }}
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - name: Verify tag matches application version
-        id: source
+      - name: Resolve the release version from the tag
+        # The tag is the version source. The build overwrites the checked-out
+        # version.properties with these facts, so old tags remain replayable and
+        # no version bump commit is required before tagging.
+        id: version
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          python3 tools/ci/check_version.py --tag "$RELEASE_TAG"
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          python3 tools/ci/release_version.py --tag "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+      - name: Record the source commit
+        id: source
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: validate
@@ -41,6 +56,7 @@ jobs:
     with:
       signed-release: true
       build-ref: ${{ needs.validate.outputs.commit }}
+      release-tag: ${{ inputs.tag || github.ref_name }}
     secrets: inherit
 
   draft:
@@ -48,12 +64,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      VERSION_CODE: ${{ needs.validate.outputs.version_code }}
+      PRERELEASE: ${{ needs.validate.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: '*-release'
           path: dist
@@ -63,8 +85,32 @@ jobs:
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           VERIFIED_COMMIT: ${{ needs.validate.outputs.commit }}
         run: |
+          set -euo pipefail
+          echo "Publishing $RELEASE_TAG: version $RELEASE_VERSION, versionCode $VERSION_CODE, prerelease $PRERELEASE"
           python3 tools/ci/verify_tag.py --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --commit "$VERIFIED_COMMIT"
-          gh release create "$RELEASE_TAG" dist/*.apk dist/*.zip dist/SHA256SUMS.txt --verify-tag --draft --title "岐黄课表 $RELEASE_TAG" --notes-file .github/RELEASE_NOTES.md
+          prerelease_args=()
+          if [ "$PRERELEASE" = "true" ]; then prerelease_args=(--prerelease); fi
+          # The notes file is read from the tagged commit, so update it before tagging.
+          gh release create "$RELEASE_TAG" dist/*.apk dist/*.zip dist/SHA256SUMS.txt --verify-tag --draft \
+            --title "岐黄课表 $RELEASE_TAG" --notes-file .github/RELEASE_NOTES.md "${prerelease_args[@]}"
+      - name: Sync released version back to main
+        # The tag, not a manual bump commit, is what decides the next version.
+        # Writing it back keeps development builds and the next tag's baseline.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B release-version-sync origin/main
+          python3 tools/ci/release_version.py --tag "$RELEASE_TAG" --write
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.properties
+          if git diff --staged --quiet; then
+            echo "version.properties already records $RELEASE_TAG"
+            exit 0
+          fi
+          git commit -m "chore(release): sync version $RELEASE_TAG"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main

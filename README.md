@@ -14,7 +14,7 @@
 
 ## 已实现
 
-- Android 主屏幕「今日课表」小组件显示当天课程、时间和教室，标记正在上课／下一节，支持滚动、调整尺寸及系统深浅色和动态配色。在「连接教务 → 添加桌面小组件」中添加，也可从启动器的小组件列表添加。读取当前账号本地缓存，查看历史学期不会改动小组件；同步、导入、切换账号及日期变化后重读。缺作息时显示节次和待同步提示；系统可能延迟后台刷新，底部显示缓存时间。Android 8–11 使用兼容集合服务，Android 12+ 使用直接集合。
+- Android 主屏幕「今日课表」小组件显示当天课程、时间和教室，标记正在上课／下一节，支持滚动、调整尺寸及系统深浅色和动态配色。在「连接教务 → 创建桌面小组件」中发起添加，也可从启动器的小组件列表添加。读取当前账号本地课表，查看历史学期不会改动小组件；同步、导入、切换账号及日期变化后重读。缺作息时显示节次和待同步提示；系统可能延迟后台刷新，底部显示更新时间。Android 8–11 使用兼容集合服务，Android 12+ 使用直接集合。
 
 - Android / Windows 提供独立的「校历」页面：展示官方日期、教学周、日期备注与今天高亮，翻月沿用课表的左右箭头和「本月」控件。顶栏同一个同步按钮获取所选学期的课表与校历；两类数据分别校验保存，单项失败保留对应缓存，不根据校历改写个人课表。
 - 「连接教务」中的「选择学期」同时控制课表和校历，选择按账号保存；离线可以切换已有缓存，未缓存或未发布的学期明确提示。Android 系统日历和小爱自动管理仅对学校当前学期提供入口，避免历史浏览覆盖当前安排；Windows ICS 导出使用正在查看的课表。
@@ -112,12 +112,17 @@ HarmonyOS NEXT 的独立 ArkTS/ArkUI 原型位于 [harmonyApp](harmonyApp/README
 
 ## 持续集成与发布
 
-版本号统一位于 `version.properties`。Android 的 `versionCode` 必须在新版本递增；Android 与 Windows 共用 `versionName`。
+版本由发布标签决定，`version.properties` 只是开发分支上的当前版本快照（由发布工作流自动写回，不在发版前手工递增）：
+
+- `versionName` 为 `MAJOR.MINOR.PATCH[-alpha.N|beta.N|rc.N]`，每个部分 0–999，禁止前导零与构建元数据；候选编号 1–99。
+- `versionCode` 按 `(major*100000 + minor*1000 + patch)*1000 + slot` 计算：正式版 slot 为 999，候选版为 `stage*100 + 序号`（alpha 1xx、beta 2xx、rc 3xx），因此候选版始终低于它对应的正式版，Android 只会面向更高 code 提供升级。
+- `tools/ci/check_version.py` 校验 `version.properties` 与上述编码一致；`tools/ci/test_release_version.py` 覆盖解析和排序规则，CI 与发布前都会运行。
 
 - 向 `main` 推送或手动运行 CI：执行核心、Android、Windows 界面及小爱驱动测试，生成官方签名 APK、带 Java 运行环境的 Windows ZIP 和校验文件。Pull Request 执行相同测试与未签名 Android 编译，不使用发布私钥、不分发可安装 APK。
-- 创建并推送与版本号一致的标签（例如 `v0.4.0`）：再次构建并使用固定发布签名生成正式 APK，校验两个平台产物后创建草稿 Release。检查草稿附件和说明后在 GitHub 发布。
+- 创建并推送任意 `v` 开头的标签（例如 `v0.6.1`、`v0.7.0-rc.1`）会自动触发 Release 工作流：`validate` 从标签解析出 `versionName`、`versionCode` 和 `prerelease`，格式不合法时直接失败；构建阶段把标签版本写入 `version.properties` 后再打包，因此不需要先提交一次版本号。产物校验通过后创建草稿 Release，候选标签的草稿会标记为 pre-release，应用内更新只接受正式版。
+- 草稿创建后，Release 工作流会把标签版本写回 `main` 的 `version.properties` 并提交 `chore(release): sync version <tag>`，使下一次发布继续以新标签为准。发版前请更新 `.github/RELEASE_NOTES.md` 的发布说明；该写回需要 `main` 允许 GitHub Actions 机器人直接推送（当前分支未受保护），若以后启用分支保护，请为 Actions 放行或改成自动创建 PR。
 - Release 工作流也支持手动重试已有标签；已存在的 Release 不会被静默覆盖。
-- Actions 依赖固定到提交 SHA；Pull Request 默认只读权限，正式签名不用于 PR 构建。
+- Actions 依赖使用版本标签、不锁定到提交 SHA，由 Dependabot 每周检查并提交升级 PR；Pull Request 默认只读权限，正式签名不用于 PR 构建。
 
 发布签名由以下 GitHub Actions Secrets 提供：
 

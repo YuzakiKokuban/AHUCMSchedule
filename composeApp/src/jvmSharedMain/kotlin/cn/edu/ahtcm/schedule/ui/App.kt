@@ -437,9 +437,9 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                         TextButton("导入官方 XLS 文件", { importFile() }, modifier = Modifier.fillMaxWidth(), enabled = !busy && !sharedSyncing)
                         if (platform.widgetAvailable) {
                             Spacer(Modifier.height(12.dp))
-                            TextButton("添加桌面小组件", { platform.addWidget() }, modifier = Modifier.fillMaxWidth())
+                            TextButton("创建桌面小组件", { platform.addWidget() }, modifier = Modifier.fillMaxWidth())
                             Spacer(Modifier.height(8.dp))
-                            Text("在主屏幕查看今日课表，随本机课表更新。", fontSize = 13.sp, color = Muted)
+                            Text("在主屏幕查看今日课表，随本机课表更新；创建时由系统确认。", fontSize = 13.sp, color = Muted)
                         }
                         val current = snapshot?.takeIf { !platform.currentTermOnlyIntegrations || it.termCode == platform.academicCalendarStore?.availableTerms()?.currentCode }
                         if (snapshot != null && current == null && platform.calendarActionLabel != null) Text("系统日历和小爱自动管理仅用于学校当前学期", fontSize = 13.sp, color = Muted)

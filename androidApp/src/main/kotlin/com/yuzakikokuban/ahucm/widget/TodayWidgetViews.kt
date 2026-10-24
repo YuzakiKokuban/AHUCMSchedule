@@ -25,20 +25,21 @@ internal object TodayWidgetViews {
             day.courses.any { it.moment == CourseMoment.Ongoing } -> "正在上课 · 共 ${day.courses.size} 项"
             day.courses.any { it.moment == CourseMoment.Next } -> "下一节待上 · 共 ${day.courses.size} 项"
             day.courses.isNotEmpty() && day.courses.all { it.moment == CourseMoment.Finished } -> "今天的课程已结束"
-            else -> "今日安排 · ${day.termLabel.orEmpty().take(40)}"
+            else -> day.termLabel.orEmpty().take(40)
         }
         setTextViewText(R.id.widget_summary, status)
+        setViewVisibility(R.id.widget_summary, if (status.isBlank()) android.view.View.GONE else android.view.View.VISIBLE)
         setTextViewText(R.id.widget_empty, data.message ?: when (day.availability) {
             DayAvailability.NoCache -> "请先打开应用同步或导入课表"
             DayAvailability.NoCourses -> "今天没有课程"
-            DayAvailability.OutsideCachedTerms -> "今天不在已缓存的学期内，请打开应用同步"
-            DayAvailability.InvalidCache -> "课表缓存读取失败，请打开应用同步"
+            DayAvailability.OutsideCachedTerms -> "今天不属于已同步的学期，请打开应用同步"
+            DayAvailability.InvalidCache -> "课表读取失败，请打开应用同步"
             DayAvailability.Ready -> "今天没有课程"
         })
         val timestamp = day.retrievedAt?.let { value -> runCatching {
             Instant.parse(value).atZone(ZoneId.of("Asia/Shanghai")).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
         }.getOrNull() }
-        setTextViewText(R.id.widget_source, if (timestamp != null) "${if (day.source == "school") "教务缓存" else "文件导入"} · $timestamp · 点击打开" else "本地缓存 · 点击打开岐黄课表")
+        setTextViewText(R.id.widget_source, if (timestamp != null) "更新于 $timestamp · 点击打开" else "点击打开岐黄课表")
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         setOnClickPendingIntent(R.id.widget_header, open)
         setOnClickPendingIntent(R.id.widget_summary, open)

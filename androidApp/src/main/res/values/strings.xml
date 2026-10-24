@@ -2,7 +2,7 @@
 <resources>
     <string name="module_description">岐黄课表：小爱课表自动管理</string>
     <string name="widget_label">今日课表</string>
-    <string name="widget_description">查看今天的课程、时间和教室，数据来自本机缓存</string>
+    <string name="widget_description">查看今天的课程、时间和教室</string>
     <string name="widget_loading">正在读取本地课表</string>
     <string name="widget_empty">请先打开应用同步课表</string>
     <string name="widget_open">点击打开岐黄课表</string>

@@ -36,7 +36,10 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi)
             packageName = "QihuangSchedule"
-            packageVersion = project.version.toString()
+            // Release tags may carry an alpha/beta/rc suffix, but the Windows
+            // installer version must stay numeric MAJOR.MINOR.BUILD; the portable
+            // distributable and package names keep the full versionName.
+            packageVersion = project.version.toString().substringBefore('-')
             windows {
                 menuGroup = "岐黄课表"
                 shortcut = true

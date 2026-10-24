@@ -1,22 +1,24 @@
-"""Validate the one version source and an optional release tag."""
+"""Validate the committed version source (version.properties).
+
+The release tag is authoritative for a release and is resolved separately by
+release_version.py; this script only checks that the version snapshot committed
+to the development branch is well formed and matches the versionCode encoding.
+"""
 from pathlib import Path
 import argparse
-import re
 
-ROOT = Path(__file__).resolve().parents[2]
+from release_version import ROOT, VersionError, read_version_file
 
-def version():
-    values = dict(line.split("=", 1) for line in (ROOT / "version.properties").read_text().splitlines() if "=" in line and not line.startswith("#"))
-    name = values["versionName"]
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", name) or int(values["versionCode"]) < 1:
-        raise SystemExit("Invalid version.properties")
-    return name
+
+def version() -> str:
+    """Returns the validated versionName from version.properties."""
+    try:
+        return read_version_file().version
+    except VersionError as error:
+        raise SystemExit(str(error)) from error
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag")
-    args = parser.parse_args()
-    name = version()
-    if args.tag and args.tag != "v" + name:
-        raise SystemExit("Release tag must match version.properties: v" + name)
-    print(name)
+    parser.parse_args()
+    print(version())

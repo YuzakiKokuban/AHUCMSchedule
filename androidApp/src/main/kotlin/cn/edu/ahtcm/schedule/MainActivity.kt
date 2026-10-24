@@ -42,9 +42,10 @@ class MainActivity : ComponentActivity() {
             override val widgetAvailable = true
             override fun addWidget() {
                 val manager = android.appwidget.AppWidgetManager.getInstance(this@MainActivity)
-                if (!manager.isRequestPinAppWidgetSupported || !manager.requestPinAppWidget(android.content.ComponentName(this@MainActivity, TodayScheduleWidget::class.java), null, null)) {
-                    model.report("请长按桌面，在小组件中添加岐黄课表的“今日课表”")
-                }
+                val requested = manager.isRequestPinAppWidgetSupported &&
+                    manager.requestPinAppWidget(android.content.ComponentName(this@MainActivity, TodayScheduleWidget::class.java), null, null)
+                if (requested) model.report("已请求添加“今日课表”小组件，请在系统提示中确认")
+                else model.report("请长按桌面，在小组件中添加岐黄课表的“今日课表”")
             }
             override fun openAbout() { startActivity(Intent(this@MainActivity, com.yuzakikokuban.ahucm.update.AboutActivity::class.java)) }
             override val webLoginAvailable = true

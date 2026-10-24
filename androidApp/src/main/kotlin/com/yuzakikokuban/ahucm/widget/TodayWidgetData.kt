@@ -27,7 +27,7 @@ internal object TodayWidgetData {
             val storage = AccountStorage(context.filesDir.toPath().resolve("schedule"))
             if ((storage.activeAccountKey ?: "manual") != owner) return WidgetSnapshot(null, empty)
             val day = TodaySchedule.project(storage.schedule.snapshots(), storage.academicCalendar.availableTerms()?.currentCode, now)
-            WidgetSnapshot(owner, day, storage.schedule.loadError?.let { "课表缓存读取失败，请打开应用同步" })
-        }.getOrElse { WidgetSnapshot(owner, empty, "课表缓存读取失败，请打开应用同步") }
+            WidgetSnapshot(owner, day, storage.schedule.loadError?.let { "课表读取失败，请打开应用同步" })
+        }.getOrElse { WidgetSnapshot(owner, empty, "课表读取失败，请打开应用同步") }
     }
 }

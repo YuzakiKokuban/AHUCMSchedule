@@ -30,8 +30,24 @@ data class ReleaseUpdate(val version: String, val notes: String, val url: String
         const val PROJECT = "https://github.com/YuzakiKokuban/AHUCMSchedule"
         const val API = "https://api.github.com/repos/YuzakiKokuban/AHUCMSchedule/releases/latest"
         const val MAX_APK_SIZE = 150L * 1024 * 1024
-        private fun versionParts(value: String): List<Int>? =
-            if (Regex("[0-9]{1,6}\\.[0-9]{1,6}\\.[0-9]{1,6}").matches(value)) value.split('.').map { it.toInt() } else null
+        private val versionPattern = Regex("([0-9]{1,6})\\.([0-9]{1,6})\\.([0-9]{1,6})(?:-(alpha|beta|rc)\\.([1-9][0-9]?))?")
+        private val stages = listOf("alpha", "beta", "rc")
+
+        /** A release tag version; a finished release outranks its own candidates. */
+        private data class AppVersion(val numbers: List<Int>, val stage: Int, val candidate: Int) : Comparable<AppVersion> {
+            override fun compareTo(other: AppVersion): Int {
+                val core = numbers.zip(other.numbers).firstOrNull { (left, right) -> left != right }
+                if (core != null) return core.first.compareTo(core.second)
+                val stageDifference = stage.compareTo(other.stage)
+                return if (stageDifference != 0) stageDifference else candidate.compareTo(other.candidate)
+            }
+        }
+
+        private fun versionParts(value: String): AppVersion? {
+            val match = versionPattern.matchEntire(value) ?: return null
+            val stage = match.groupValues[4].let { if (it.isEmpty()) stages.size + 1 else stages.indexOf(it) + 1 }
+            return AppVersion(match.groupValues.subList(1, 4).map { it.toInt() }, stage, match.groupValues[5].toIntOrNull() ?: 0)
+        }
 
         fun parse(json: String, currentVersion: String): ReleaseUpdate? {
             val root = Json.parseToJsonElement(json).jsonObject
@@ -40,8 +56,7 @@ data class ReleaseUpdate(val version: String, val notes: String, val url: String
             val version = tag.removePrefix("v")
             val candidate = versionParts(version) ?: return null
             val current = requireNotNull(versionParts(currentVersion)) { "当前版本格式无效" }
-            val difference = candidate.zip(current).firstOrNull { it.first != it.second } ?: return null
-            if (difference.first < difference.second) return null
+            if (candidate <= current) return null
             val names = setOf("QihuangSchedule-Android-$version.apk", "AHUCMSchedule-Android-$version.apk")
             val asset = root.getValue("assets").jsonArray.map { it.jsonObject }.singleOrNull {
                 it["name"]?.jsonPrimitive?.content in names && it["state"]?.jsonPrimitive?.content == "uploaded"
