@@ -121,9 +121,10 @@ class ManagedSyncProvider : ContentProvider() {
                 require(state in listOf("pending", "applied", "failed"))
                 val id = receipt.optString("tableId")
                 require(id.isEmpty() || Regex("[1-9][0-9]*").matches(id))
-                check(record.optString("tableId").isEmpty() || id == record.optString("tableId")) { "target_changed" }
-                val canceled = record.optBoolean("cancelRequested")
                 val isFinal = extras.getBoolean("final")
+                check(ManagedTargetBinding.accepts(record.optString("tableId"), record.optString("phase"),
+                    id, receipt.getString("phase"), state == "pending" && !isFinal)) { "target_changed" }
+                val canceled = record.optBoolean("cancelRequested")
                 if (canceled && !isFinal) {
                     // Keep any returned identity from a previously authorized create,
                     // but never acknowledge another mutation after cancellation.

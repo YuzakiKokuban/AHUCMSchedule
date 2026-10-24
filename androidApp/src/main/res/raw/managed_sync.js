@@ -2,6 +2,14 @@
  * No credentials leave the host. Every mutation requires a durable native ack. */
 (function(root) {
  'use strict';
+ function acknowledge(box,token,seq,allowMutation) {
+  if(!box||box.token!==token)return;
+  // A slow Binder call can return after the checkpoint timed out and published
+  // a newer final receipt. Only clear the report that was actually persisted.
+  if(box.seq===seq)box.report=null;
+  if(allowMutation)box.ack=seq;
+  else {box.cancelRequested=true;box.denied=seq;}
+ }
  function numbers(v) { return (Array.isArray(v)?v:String(v||'').split(',')).map(Number).sort((a,b)=>a-b); }
  function canonical(c) { return JSON.stringify([String(c.name||''),String(c.teacher||''),String(c.position||''),Number(c.day),numbers(c.sections),numbers(c.weeks)]); }
  function sameCourses(actual, expected) { return Array.isArray(actual)&&actual.length===expected.length&&JSON.stringify(actual.map(canonical).sort())===JSON.stringify(expected.map(canonical).sort()); }
@@ -94,10 +102,8 @@
   // new bounded attempt; reporting failed/accepted also lets the app start over.
   const failedReport=message=>({...report(),state:'failed',phase:'accepted',message:String(message||'host_failure').slice(0,160)});
   const coursesPersisted=async()=>{const d=await call('GET','table',{ctId:tableId});return sameCourses(d.courses,p.courses);};
-  // A freshly created host table can acknowledge the batch yet persist no courses.
-  // The settings write above initializes it first; one bounded replay of the same
-  // idempotent replacement covers a silent drop, with its own cancellation
-  // checkpoint before the second mutation.
+  // The target must be selected before batch import. One bounded replay covers
+  // a silent drop, with a durable cancellation checkpoint before either write.
   const writeCourses=async styleFor=>{
    const body={ctId:tableId,courses:p.courses.map(c=>({...c,weeks:c.weeks.join(','),sections:c.sections.join(','),extend:'{}',style:styleFor(c.name),attendTime:0}))};
    await save('courses-writing');
@@ -116,12 +122,14 @@
    settings.extend=JSON.stringify({...JSON.parse(original.setting.extend||'{}'),startSemester:Number(p.timer.startSemester),ahuRandomColors:1});
    const styleFor=courseStyles(original);
    expectedStyles=new Map(p.courses.map(c=>{const s=JSON.parse(styleFor(c.name));return [c.name,JSON.stringify([s.color.toUpperCase(),s.background.toUpperCase()])];}));
-   await save('settings-writing');
-   await call('PUT','table',{ctId:tableId,name,setting:settings});
-   if(!await writeCourses(styleFor))throw Error('course_write_not_persisted');
+   // Match the official importer: inactive tables silently drop batches, and
+   // import/selection can reset presentWeek. Save settings after both operations.
    await save('selection-writing');
    const from=tables.find(t=>Number(t.current)===1);
    await call('POST','table_switch',{toCtId:tableId,fromCtId:from?from.id:0});
+   if(!await writeCourses(styleFor))throw Error('course_write_not_persisted');
+   await save('settings-writing');
+   await call('PUT','table',{ctId:tableId,name,setting:settings});
    await save('verifying');
    return await verify();
   };
@@ -180,6 +188,6 @@
    return {...report(),state:phase==='accepted'?'failed':'pending',message:String(e.message||'host_failure').slice(0,160)};
   }
  }
- const api={run,sameCourses,sameSettings,settingsFor};
+ const api={run,sameCourses,sameSettings,settingsFor,acknowledge};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.AhuManagedSync=api;
 })(typeof window!=='undefined'?window:globalThis);

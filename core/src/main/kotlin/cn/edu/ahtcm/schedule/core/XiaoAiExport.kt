@@ -28,7 +28,7 @@ object XiaoAiExport {
         val afternoon = snapshot.periods.count { LocalTime.parse(it.start) >= LocalTime.of(13, 0) && LocalTime.parse(it.start) < LocalTime.of(18, 0) }
         val timer = XiaoAiTimer(totalWeek, monday.atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli(), snapshot.periods.sortedBy { it.section }.map { XiaoAiSection(it.section,it.start,it.end) }, forenoon=morning, afternoon=afternoon, night=snapshot.periods.size-morning-afternoon)
         // Adapter migrations must recheck the target even when school data is unchanged.
-        val revision = digest("timer-readback-v2|$owner|${snapshot.termCode}|${json.encodeToString(courses)}|${json.encodeToString(timer)}")
+        val revision = digest("ordered-import-v3|$owner|${snapshot.termCode}|${json.encodeToString(courses)}|${json.encodeToString(timer)}")
         return XiaoAiPayload(owner,snapshot.termCode,revision,snapshot.retrievedAt,snapshot.weekOneMonday,snapshot.termLabel,courses,timer)
     }
     fun json(payload: XiaoAiPayload) = json.encodeToString(payload)

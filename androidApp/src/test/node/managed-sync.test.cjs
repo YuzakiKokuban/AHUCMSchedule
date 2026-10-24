@@ -4,7 +4,21 @@ const fs = require('node:fs');
 const path = '../../main/res/raw/managed_sync.js';
 const driver = fs.existsSync(require('node:path').join(__dirname,path)) ? require(path) : {run: async()=>{throw new Error('driver missing')}};
 const payload = {owner:'a'.repeat(64),termCode:'202601',revision:'b'.repeat(64),timer:{totalWeek:20,startSemester:1788105600000,startWithSunday:false,showWeekend:true,forenoon:4,afternoon:6,night:4,sections:[{section:1,startTime:'08:30',endTime:'09:10'}]},courses:[{name:'Nursing',teacher:'T',position:'R',day:1,sections:[1],weeks:[1,2]}]};
-function fixture({mismatch=false,uncertain=false,other=false,existing=false,taken=false,dropFirst=0}={}) {
+
+test('a delayed native ack cannot erase a newer timeout receipt',()=>{
+ const report={state:'failed',message:'native_checkpoint_timeout'};
+ const box={token:'lease',seq:2,report,ack:0,final:true};
+ driver.acknowledge(box,'lease',1,true);
+ assert.equal(box.report,report);
+ assert.equal(box.ack,1);
+ driver.acknowledge(box,'other-lease',2,false);
+ assert.equal(box.cancelRequested,undefined);
+ driver.acknowledge(box,'lease',2,false);
+ assert.equal(box.report,null);
+ assert.equal(box.cancelRequested,true);
+ assert.equal(box.denied,2);
+});
+function fixture({mismatch=false,uncertain=false,other=false,existing=false,taken=false,dropFirst=0,requireCurrent=false,resetWeek=false}={}) {
   const managedName='AHUCM-'+payload.owner.slice(0,16)+'-'+payload.termCode;
   let tables=other||existing?[{id:9,name:other?'Personal':'AHUCM-old',current:1}]:[];
   if(existing)tables=[{id:10,name:managedName,current:1}];
@@ -15,7 +29,9 @@ function fixture({mismatch=false,uncertain=false,other=false,existing=false,take
     if(url.endsWith('/tables'))return {code:0,data:tables};
     if(url.endsWith('/table')&&method==='POST'){tables.push({id:10,name:data.name,current:0});return {code:0,data:10};}
     if(url.endsWith('/courseInfos')){
+      if(requireCurrent&&!tables.some(t=>t.id===data.ctId&&t.current===1))return {code:0,data:[]};
       if(dropped>0){dropped--;return {code:0,data:[]};}
+      if(resetWeek)setting={...setting,presentWeek:1};
       courses=data.courses;return {code:0,data:courses.map((_,i)=>i+1)};
     }
     if(url.endsWith('/table')&&method==='PUT'){setting={...data.setting,sectionTimes:data.setting.sections};return {code:0,data:true};}
@@ -199,14 +215,15 @@ test('cancellation at first native checkpoint stops table creation',async()=>{
  const f=fixture();const r=await driver.run(f.job,f.request,async()=>({allowMutation:false,cancelRequested:true}));
  assert.equal(f.writes.length,0);assert.equal(r.state,'failed');assert.equal(r.cancelRequested,true);
 });
-test('new table is initialized with settings before courses are written',async()=>{
- const f=fixture();const r=await driver.run(f.job,f.request,f.checkpoint);
+test('selects the target before importing and writes settings after the host resets the week',async()=>{
+ const f=fixture({requireCurrent:true,resetWeek:true});const r=await driver.run(f.job,f.request,f.checkpoint);
  assert.equal(r.state,'applied');
  const order=f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`);
  assert.ok(order.indexOf('PUT table')>=0&&order.indexOf('POST courseInfos')>=0);
- assert.ok(order.indexOf('PUT table')<order.indexOf('POST courseInfos'),`settings must be durable before courses: ${order}`);
+ assert.ok(order.indexOf('POST table_switch')<order.indexOf('POST courseInfos'),`target must be current before courses: ${order}`);
+ assert.ok(order.indexOf('POST courseInfos')<order.indexOf('PUT table'),`settings must follow course import: ${order}`);
 });
-test('a silently dropped first course batch is rewritten once settings exist',async()=>{
+test('a silently dropped first course batch is rewritten once the target is selected',async()=>{
  const f=fixture({dropFirst:1});const r=await driver.run(f.job,f.request,f.checkpoint);
  const posts=f.writes.filter(w=>w.url.endsWith('/courseInfos'));
  assert.equal(r.state,'applied');
@@ -215,7 +232,7 @@ test('a silently dropped first course batch is rewritten once settings exist',as
  assert.equal(f.writes.filter(w=>w.method==='PUT'&&w.url.endsWith('/table')).length,1);
  assert.equal(f.writes.filter(w=>w.url.endsWith('/table_switch')).length,1);
  const order=f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`);
- assert.ok(order.indexOf('PUT table')<order.indexOf('POST courseInfos'));
+ assert.ok(order.indexOf('POST table_switch')<order.indexOf('POST courseInfos'));
 });
 test('cancellation between a dropped batch and its replay stops the replay',async()=>{
  const f=fixture({dropFirst:1});let courseCheckpoints=0;
@@ -238,8 +255,8 @@ test('an unrecoverable course write becomes failed/accepted instead of looping p
  assert.equal(r.phase,'accepted');
  assert.equal(r.message,'course_write_not_persisted');
  assert.equal(f.writes.filter(w=>w.url.endsWith('/courseInfos')).length,2);
- assert.equal(f.writes.filter(w=>w.method==='PUT'&&w.url.endsWith('/table')).length,1);
- assert.equal(f.writes.filter(w=>w.url.endsWith('/table_switch')).length,0);
+ assert.equal(f.writes.filter(w=>w.method==='PUT'&&w.url.endsWith('/table')).length,0);
+ assert.equal(f.writes.filter(w=>w.url.endsWith('/table_switch')).length,1);
 });
 test('a wedged verifier still never writes while cancellation is requested',async()=>{
  const f=fixture({existing:true});f.job.cancelRequested=true;
@@ -247,9 +264,9 @@ test('a wedged verifier still never writes while cancellation is requested',asyn
  assert.equal(f.writes.length,0);assert.equal(r.state,'pending');assert.equal(r.cancelRequested,true);
 });
 test('cancellation after course write allows only reads and retains uncertainty',async()=>{
- const f=fixture();const checkpoint=async r=>r.phase==='selection-writing'?{allowMutation:false,cancelRequested:true}:true;
+ const f=fixture();const checkpoint=async r=>r.phase==='settings-writing'?{allowMutation:false,cancelRequested:true}:true;
  const r=await driver.run(f.job,f.request,checkpoint);
- assert.deepEqual(f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`),['POST table','PUT table','POST courseInfos']);
+ assert.deepEqual(f.writes.map(w=>`${w.method} ${w.url.split('/').pop()}`),['POST table','POST table_switch','POST courseInfos']);
  assert.equal(r.state,'pending');assert.equal(r.cancelRequested,true);
 });
 test('canceled interrupted job is readback-only',async()=>{
