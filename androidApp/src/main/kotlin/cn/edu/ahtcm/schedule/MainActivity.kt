@@ -16,6 +16,8 @@ import cn.edu.ahtcm.schedule.ui.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.concurrent.atomic.AtomicLong
+import com.yuzakikokuban.ahucm.widget.TodayWidgetUpdates
+import com.yuzakikokuban.ahucm.widget.TodayScheduleWidget
 
 class MainActivity : ComponentActivity() {
     private val model by lazy {
@@ -37,6 +39,13 @@ class MainActivity : ComponentActivity() {
             override val currentTermOnlyIntegrations = true
             override val termSelection get() = model.storage.termSelection
             override val aboutAvailable = true
+            override val widgetAvailable = true
+            override fun addWidget() {
+                val manager = android.appwidget.AppWidgetManager.getInstance(this@MainActivity)
+                if (!manager.isRequestPinAppWidgetSupported || !manager.requestPinAppWidget(android.content.ComponentName(this@MainActivity, TodayScheduleWidget::class.java), null, null)) {
+                    model.report("请长按桌面，在小组件中添加岐黄课表的“今日课表”")
+                }
+            }
             override fun openAbout() { startActivity(Intent(this@MainActivity, com.yuzakikokuban.ahucm.update.AboutActivity::class.java)) }
             override val webLoginAvailable = true
             override fun openWebLogin(account: String) {
@@ -55,7 +64,7 @@ class MainActivity : ComponentActivity() {
             override val sessionReady get() = model.storage.matchesSession(model.school)
             override val noticeStore get() = model.storage.notices
             override val academicCalendarStore get() = model.storage.academicCalendar
-            override fun selectAccount(account: String) { model.storage.select(account) }
+            override fun selectAccount(account: String) { model.selectAccount(account) }
             override val foreground = model.foreground
             override val selections = model.selections
             override val integrationFeedback = model.feedback
@@ -72,9 +81,15 @@ class MainActivity : ComponentActivity() {
             override val moduleActivation = (application as ScheduleApplication).moduleActivation
             override val moduleStatus = model.moduleStatus
             override fun manageXiaoAi(snapshot: ScheduleSnapshot) { model.enableModule() }
-            override fun onScheduleSynchronized(snapshot: ScheduleSnapshot) = model.syncIntegrations(snapshot)
+            override fun onScheduleSynchronized(snapshot: ScheduleSnapshot): List<String> {
+                TodayWidgetUpdates.request(this@MainActivity)
+                return model.syncIntegrations(snapshot)
+            }
             override fun consumeFeedback(id: Long) { if (model.feedback.value?.id == id) model.feedback.value = null }
-            override fun consumeSelection(token: Long) { if (model.selections.value?.token == token) model.selections.value = null }
+            override fun consumeSelection(token: Long) {
+                if (model.selections.value?.token == token) model.selections.value = null
+                TodayWidgetUpdates.request(this@MainActivity)
+            }
             override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) {
                 picker.launch(arrayOf("application/vnd.ms-excel", "application/octet-stream"))
             }
@@ -84,7 +99,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent { App(actions) }
     }
-    override fun onStart() { super.onStart(); model.foreground.value = true }
+    override fun onStart() { super.onStart(); model.foreground.value = true; TodayWidgetUpdates.request(this) }
     override fun onStop() { model.foreground.value = false; super.onStop() }
 }
 
@@ -130,6 +145,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         check(authPrefs.edit().putString("source","password").commit())
         browserSessions.clear()
     }
+    fun selectAccount(account: String) = TodayWidgetUpdates.accountChanged(context) { storage.select(account) }
     fun restoreWebSession(): Boolean = school.withSession {
         if (authPrefs.getString("source",null)=="password") return@withSession false
         val session = browserSessions.load() ?: return@withSession false
@@ -137,7 +153,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         // Web login is the selected source; obsolete/corrupt password data must
         // neither block it nor become a fallback for another account.
         runCatching { passwordStore.clear() }
-        storage.select(session.account)
+        selectAccount(session.account)
         true
     }
     fun acceptWebLogin() { io.launch {
@@ -187,7 +203,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     private fun fresh(): ScheduleSnapshot = school.withSession {
         check(storage.matchesSession(school)) { "请先登录教务系统" }
         when(val result = storage.schedule.synchronizeSchool { school.downloadSchoolTimetable() }) {
-            is UpdateResult.Success -> result.snapshot
+            is UpdateResult.Success -> result.snapshot.also { TodayWidgetUpdates.request(context) }
             is UpdateResult.Failure -> error(result.message)
         }
     }

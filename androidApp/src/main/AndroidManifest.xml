@@ -1,11 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <queries><package android:name="com.miui.voiceassist" /></queries>
     <application android:name=".ScheduleApplication" android:allowBackup="false" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:label="岐黄课表" android:description="@string/module_description" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false" android:supportsRtl="true">
+        <receiver android:name=".widget.TodayScheduleWidget" android:exported="false" android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/today_schedule_widget" />
+        </receiver>
+        <service android:name=".widget.TodayScheduleWidgetService" android:exported="false" android:permission="android.permission.BIND_REMOTEVIEWS" />
         <provider android:name=".integration.ManagedSyncProvider" android:authorities="${applicationId}.schedule.sync" android:exported="true" android:grantUriPermissions="false" />
         <activity android:name=".SchoolWebLoginActivity" android:exported="false" />
         <activity android:name=".update.AboutActivity" android:exported="false" />

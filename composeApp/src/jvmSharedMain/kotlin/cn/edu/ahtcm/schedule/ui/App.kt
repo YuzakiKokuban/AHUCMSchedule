@@ -59,6 +59,8 @@ interface PlatformActions {
     val currentTermOnlyIntegrations: Boolean get() = false
     val aboutAvailable: Boolean get() = false
     fun openAbout() = Unit
+    val widgetAvailable: Boolean get() = false
+    fun addWidget() = Unit
     val webLoginAvailable: Boolean get() = false
     fun openWebLogin(account: String) = Unit
     fun restoreWebSession(): Boolean = false
@@ -433,6 +435,12 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                         TextButton("打开教务系统", { platform.openSchool() }, modifier = Modifier.fillMaxWidth())
                         Spacer(Modifier.height(12.dp))
                         TextButton("导入官方 XLS 文件", { importFile() }, modifier = Modifier.fillMaxWidth(), enabled = !busy && !sharedSyncing)
+                        if (platform.widgetAvailable) {
+                            Spacer(Modifier.height(12.dp))
+                            TextButton("添加桌面小组件", { platform.addWidget() }, modifier = Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(8.dp))
+                            Text("在主屏幕查看今日课表，随本机课表更新。", fontSize = 13.sp, color = Muted)
+                        }
                         val current = snapshot?.takeIf { !platform.currentTermOnlyIntegrations || it.termCode == platform.academicCalendarStore?.availableTerms()?.currentCode }
                         if (snapshot != null && current == null && platform.calendarActionLabel != null) Text("系统日历和小爱自动管理仅用于学校当前学期", fontSize = 13.sp, color = Muted)
                         if (current != null && platform.calendarActionLabel != null) {
