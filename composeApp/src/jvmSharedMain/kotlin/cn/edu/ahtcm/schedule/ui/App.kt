@@ -7,6 +7,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.graphics.drawscope.withTransform
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.*
 import androidx.compose.foundation.layout.*
@@ -489,6 +491,7 @@ private fun BrandMark(modifier: Modifier = Modifier) {
     // mark recolours with the system theme on Android and Windows.
     val badge = MiuixTheme.colorScheme.primary
     val glyph = MiuixTheme.colorScheme.onPrimary
+    val paths = remember { BrandMarkPaths.map { PathParser().parsePathString(it).toPath() } }
     Canvas(modifier) {
         val unit = size.minDimension / 512f
         drawRoundRect(
@@ -496,19 +499,8 @@ private fun BrandMark(modifier: Modifier = Modifier) {
             size = Size(size.minDimension, size.minDimension),
             cornerRadius = CornerRadius(112f * unit, 112f * unit),
         )
-        fun block(x: Float, y: Float, width: Float, height: Float, corner: Float) {
-            drawRoundRect(
-                color = glyph,
-                topLeft = Offset(x * unit, y * unit),
-                size = Size(width * unit, height * unit),
-                cornerRadius = CornerRadius(corner * unit, corner * unit),
-            )
-        }
-        block(136f, 116f, 240f, 50f, 25f)
-        for (row in 0..2) {
-            for (column in 0..1) {
-                block(136f + column * 132f, 182f + row * 82f, 108f, 66f, 18f)
-            }
+        withTransform({ scale(unit, unit, pivot = Offset.Zero) }) {
+            paths.forEach { drawPath(it, glyph) }
         }
     }
 }

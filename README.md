@@ -6,7 +6,7 @@
 
 ## 标志与 Monet 取色
 
-标志由「学期标题栏 + 2×3 课程块」组成，落在薄荷玉色渐变圆角方块上。完整几何、调色板、导出与重新生成方式见 [design/README.md](design/README.md)。
+标志以「课历装订 + 展开的书页 + 负形草叶」组成，使用深玉绿与暖白配色；图形在单色下也能识别。完整几何、调色板、导出与重新生成方式见 [design/README.md](design/README.md)。
 
 - Android 自适应图标带 monochrome 图层：系统开启主题图标后，启动器用 Monet 调色板对标志重新取色。
 - 应用内空状态使用同一几何的标志，颜色取 `MiuixTheme.colorScheme.primary / onPrimary`，Android 与 Windows 都跟随动态主题。

@@ -48,10 +48,17 @@ foreach ($entry in $entries) {
     New-Item -ItemType Directory -Force -Path $pngDir | Out-Null
     if (Test-Path -LiteralPath $entry.Png) { Remove-Item -LiteralPath $entry.Png -Force }
     $uri = ([uri]$entry.Html).AbsoluteUri
-    & $edge --headless --disable-gpu --no-sandbox --hide-scrollbars `
-        --force-device-scale-factor=1 "--window-size=$($entry.Size),$($entry.Size)" `
-        '--default-background-color=00000000' "--user-data-dir=$profile" `
-        "--screenshot=$($entry.Png)" $uri 2>$null | Out-Null
+    # Edge reports successful captures on stderr. Windows PowerShell otherwise
+    # treats that diagnostic as a terminating NativeCommandError under Stop.
+    $previousErrorPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $edge --headless --disable-gpu --no-sandbox --hide-scrollbars `
+            --force-device-scale-factor=1 "--window-size=$($entry.Size),$($entry.Size)" `
+            '--default-background-color=00000000' "--user-data-dir=$profile" `
+            "--screenshot=$($entry.Png)" $uri 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Edge render failed with exit code $LASTEXITCODE" }
+    } finally { $ErrorActionPreference = $previousErrorPreference }
     $deadline = (Get-Date).AddSeconds(20)
     while (-not (Test-Path -LiteralPath $entry.Png) -and (Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 150
