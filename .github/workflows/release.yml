@@ -67,4 +67,4 @@ jobs:
           VERIFIED_COMMIT: ${{ needs.validate.outputs.commit }}
         run: |
           python3 tools/ci/verify_tag.py --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --commit "$VERIFIED_COMMIT"
-          gh release create "$RELEASE_TAG" dist/*.apk dist/*.zip dist/SHA256SUMS.txt --verify-tag --draft --title "瀹変腑璇捐〃 $RELEASE_TAG" --notes-file .github/RELEASE_NOTES.md
+          gh release create "$RELEASE_TAG" dist/*.apk dist/*.zip dist/SHA256SUMS.txt --verify-tag --draft --title "岐黄课表 $RELEASE_TAG" --notes-file .github/RELEASE_NOTES.md

@@ -45,6 +45,8 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 interface PlatformActions {
+    val aboutAvailable: Boolean get() = false
+    fun openAbout() = Unit
     val webLoginAvailable: Boolean get() = false
     fun openWebLogin(account: String) = Unit
     fun restoreWebSession(): Boolean = false
@@ -454,6 +456,10 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                         }
                         Spacer(Modifier.height(12.dp))
                         Text("如学校要求验证码，请先在学校网页完成验证。也可从信息查询 → 课表查询导出当前学期全部周次 XLS，再手动导入。", fontSize = 13.sp, color = Muted)
+                        if (platform.aboutAvailable) {
+                            Spacer(Modifier.height(16.dp))
+                            TextButton("关于岐黄课表", { platform.openAbout() }, modifier = Modifier.fillMaxWidth())
+                        }
                       }
                     }
                 }

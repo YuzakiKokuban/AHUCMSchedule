@@ -40,4 +40,11 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
   build:
+    if: github.event_name == 'pull_request'
     uses: ./.github/workflows/build.yml
+  signed-build:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/build.yml
+    with:
+      signed-release: true
+    secrets: inherit

@@ -14,6 +14,8 @@
 
 ## 已实现
 
+- Android「连接教务」页的「关于岐黄课表」展示实际版本、版权、Apache-2.0 与第三方声明；支持手动检查 GitHub 正式版、应用内下载并校验 APK，再由系统确认安装。仅同签名且版本递增的安装包可更新，不自动后台下载。
+
 - 直接通过学校统一身份认证登录，读取当前学期个人课表和已读、未读通知。
 - 每次同步重新请求官方全部周次 XLS，核对实际学期、日期与课程结构，保存成功后才替换课表。
 - Android 支持在官方 WebView 登录，加密保存教务 Cookie，会话恢复通过权限校验后自动同步；不读取网页登录密码。
@@ -35,7 +37,7 @@
 
 正式 Release 提供固定签名的 Android APK 和带运行环境的 Windows ZIP；密钥及口令不入库，需另外离线备份。正式包与旧调试包签名不同，切换时请按 Release 说明处理。Windows 解压完整 ZIP 后运行 `QihuangSchedule.exe`；下载页同时提供 `SHA256SUMS.txt`。
 
-签名配置读取忽略提交的 `local.properties` 中的 `ahucm.release.*` 项，缺失时 release 构建回退为调试签名，保证干净检出仍可构建：
+Android 所有可安装变体统一使用 `release-signing-certificate.sha256` 对应的官方证书；配置其他证书会拒绝构建。签名配置读取忽略提交的 `local.properties` 中的 `ahucm.release.*` 项，或下文列出的环境变量。缺少官方私钥时只可生成未签名包，不再回退到默认调试证书：
 
 ```powershell
 .\gradlew.bat :androidApp:assembleRelease
@@ -106,7 +108,7 @@ HarmonyOS NEXT 的独立 ArkTS/ArkUI 原型位于 [harmonyApp](harmonyApp/README
 
 版本号统一位于 `version.properties`。Android 的 `versionCode` 必须在新版本递增；Android 与 Windows 共用 `versionName`。
 
-- 向 `main` 推送、提交 Pull Request 或手动运行 CI：执行核心、Android、Windows 界面及小爱驱动测试，生成调试 APK、带 Java 运行环境的 Windows ZIP 和校验文件。
+- 向 `main` 推送或手动运行 CI：执行核心、Android、Windows 界面及小爱驱动测试，生成官方签名 APK、带 Java 运行环境的 Windows ZIP 和校验文件。Pull Request 执行相同测试与未签名 Android 编译，不使用发布私钥、不分发可安装 APK。
 - 创建并推送与版本号一致的标签（例如 `v0.4.0`）：再次构建并使用固定发布签名生成正式 APK，校验两个平台产物后创建草稿 Release。检查草稿附件和说明后在 GitHub 发布。
 - Release 工作流也支持手动重试已有标签；已存在的 Release 不会被静默覆盖。
 - Actions 依赖固定到提交 SHA；Pull Request 默认只读权限，正式签名不用于 PR 构建。
@@ -121,7 +123,7 @@ HarmonyOS NEXT 的独立 ArkTS/ArkUI 原型位于 [harmonyApp](harmonyApp/README
 
 密钥库只恢复到临时构建目录，任务结束删除；请另外保管离线备份，后续升级必须使用同一签名。
 发布构建还会核对 `release-signing-certificate.sha256` 中的公开证书指纹，防止误换密钥导致无法升级。
-正式 APK 和调试 APK 使用不同签名，不能相互覆盖安装；切换安装前应确认能重新登录同步，卸载会删除对应应用的本地数据。
+0.4.1 起，本地 debug/release 和 CI 的可安装 APK 统一使用同一官方签名。早期其他证书签署的安装仍受 Android 签名限制，无法直接覆盖为官方版；迁移前需保留课表并确认可重新登录，不能通过更改配置绕过系统限制。
 CI 不包含学生凭据或真实课表，不运行需要账号的实网测试。
 
 Windows 构建须在 Windows 上运行：
