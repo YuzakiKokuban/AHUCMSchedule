@@ -20,17 +20,24 @@ class UpdateServicesTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val keyguard = context.getSystemService(android.app.KeyguardManager::class.java)
         org.junit.Assume.assumeFalse("Unlock device to verify the about UI", keyguard.isKeyguardLocked)
-        instrumentation.startActivitySync(android.content.Intent(context, com.yuzakikokuban.ahucm.update.AboutActivity::class.java)
-            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-        instrumentation.waitForIdleSync()
+        instrumentation.uiAutomation.adoptShellPermissionIdentity("android.permission.START_ACTIVITIES_FROM_BACKGROUND")
+        try {
+            context.startActivity(android.content.Intent(context, com.yuzakikokuban.ahucm.update.AboutActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
+        fun containsText(node: android.view.accessibility.AccessibilityNodeInfo, value: String): Boolean {
+            if (node.text?.contains(value) == true) return true
+            for (i in 0 until node.childCount) { val child = node.getChild(i) ?: continue; if (containsText(child, value)) return true }
+            return false
+        }
         var root: android.view.accessibility.AccessibilityNodeInfo? = null
-        for (attempt in 0..30) {
+        for (attempt in 0..100) {
             root = instrumentation.uiAutomation.rootInActiveWindow
-            if (root?.findAccessibilityNodeInfosByText("© 2026 YuzakiKokuban")?.isNotEmpty() == true) break
+            if (root != null && containsText(root, "© 2026 YuzakiKokuban")) break
             Thread.sleep(100)
         }
-        assertTrue(root!!.findAccessibilityNodeInfosByText("© 2026 YuzakiKokuban").isNotEmpty())
-        assertTrue(root.findAccessibilityNodeInfosByText("版本 ${BuildConfig.VERSION_NAME}").isNotEmpty())
+        assertTrue(containsText(root!!, "© 2026 YuzakiKokuban"))
+        assertTrue(containsText(root, "版本 ${BuildConfig.VERSION_NAME}"))
         fun findBack(node: android.view.accessibility.AccessibilityNodeInfo): android.view.accessibility.AccessibilityNodeInfo? {
             if (node.contentDescription?.toString() == "返回") return node
             for (i in 0 until node.childCount) { val child = node.getChild(i) ?: continue; findBack(child)?.let { return it } }

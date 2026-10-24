@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
             override val moduleLinked get() = model.moduleLinked
             override fun disableCalendar() { model.disable("calendar") }
             override fun disableXiaoAi() { model.disable("module") }
-            override val moduleSupported = true
+            override val moduleSupported = BuildConfig.APPLICATION_ID == "com.yuzakikokuban.ahucm"
             override val moduleActivation = (application as ScheduleApplication).moduleActivation
             override val moduleStatus = model.moduleStatus
             override fun manageXiaoAi(snapshot: ScheduleSnapshot) { model.enableModule() }

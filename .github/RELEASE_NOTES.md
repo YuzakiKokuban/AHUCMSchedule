@@ -6,6 +6,7 @@
 - 本地 debug/release 与 CI 可安装 APK 统一使用现有官方发布证书；未配置官方私钥时不再生成另一套调试签名。
 - 统一「岐黄课表」名称与品牌资源；小爱自动管理仅在 LSPosed 模块激活时显示。
 - 鸿蒙独立原型已通过编译，尚待签名与真机验证，本次正式安装包仍为 Android 与 Windows。
+- 合并 POI 5.5.1、JNA 5.19.1、SLF4J 2.0.20；Kotlin 四个插件统一更新至 2.4.21，重新整理两端随包第三方许可。
 
 Android 下载 `.apk`；Windows 解压完整 `.zip` 后运行 `QihuangSchedule.exe`，无需另装 Java。
 
