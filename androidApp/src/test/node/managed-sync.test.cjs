@@ -51,6 +51,20 @@ test('writes only dedicated table and reports applied after course/settings read
 test('readback mismatch never reports applied',async()=>{
  const f=fixture({mismatch:true});const r=await driver.run(f.job,f.request,f.checkpoint);assert.notEqual(r.state,'applied');
 });
+
+test('an unchanged school revision restores a course deleted from the managed host table',async()=>{
+ const f=fixture();
+ assert.equal((await driver.run(f.job,f.request,f.checkpoint)).state,'applied');
+ const detail=await f.request({url:'/course-multi/table',method:'GET',data:{ctId:10}});
+ detail.data.courses.splice(0,1);
+ f.writes.length=0;
+ const result=await driver.run({...f.job,tableId:'10',phase:'verifying'},f.request,f.checkpoint);
+ assert.equal(result.state,'applied');
+ assert.ok(f.writes.some(w=>w.url.endsWith('/courseInfos')));
+ assert.equal(f.writes.some(w=>w.method==='POST'&&w.url.endsWith('/table')),false);
+ const repaired=await f.request({url:'/course-multi/table',method:'GET',data:{ctId:10}});
+ assert.equal(driver.sameCourses(repaired.data.courses,payload.courses),true);
+});
 test('an interrupted mutation repairs its bound table instead of waiting forever',async()=>{
  const f=fixture({uncertain:true});const r=await driver.run(f.job,f.request,f.checkpoint);
  assert.equal(r.state,'applied');

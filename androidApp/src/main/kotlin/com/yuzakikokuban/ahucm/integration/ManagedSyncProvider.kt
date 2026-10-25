@@ -2,7 +2,6 @@ package com.yuzakikokuban.ahucm.integration
 
 import android.content.ContentProvider
 import android.content.ContentValues
-import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.os.Binder
@@ -20,13 +19,14 @@ import java.util.UUID
 
 /** Narrow Binder interface: only this app can enqueue; only the
  * system XiaoAi process can consume and acknowledge. No credential transport. */
-class ManagedSyncProvider : ContentProvider() {
+class ManagedSyncProvider(private val backgroundSignal: ((android.content.Context) -> Unit)? = null) : ContentProvider() {
     companion object {
         const val AUTHORITY = "com.yuzakikokuban.ahucm.schedule.sync"
         val URI: Uri = Uri.parse("content://$AUTHORITY")
         private const val CLIENT = "com.yuzakikokuban.ahucm"
         private val HEX = Regex("[0-9a-f]{64}")
         private val LOCK = Any()
+        private val WAKE = java.util.concurrent.Executors.newSingleThreadExecutor()
     }
     private val journal get() = AtomicFile(File(requireNotNull(context).filesDir, "managed-schedule-sync.json"))
     override fun onCreate() = true
@@ -43,13 +43,20 @@ class ManagedSyncProvider : ContentProvider() {
                 val payload = validate(extras?.getString("payload") ?: error("missing_payload"))
                 if (record?.optBoolean("cancelRequested") == true) {
                     check(extras.getBoolean("resume")) { "management_canceled" }
-                    check(ManagedCancellation.canResume(record.optString("state"), record.optString("token").isNotEmpty())) { "canceled_write_unresolved" }
-                    record.put("cancelRequested", false)
-                    if (record.optString("state") == "failed") record.put("phase", "accepted")
+                    val claimed = ManagedHostLease.active(record.optString("token"), record.optLong("leaseUntil"), System.currentTimeMillis())
+                    check(ManagedCancellation.canResume(record.optString("state"), claimed,
+                        record.optString("phase"), record.optString("tableId"))) { "canceled_write_unresolved" }
+                    // Retire the old lease so delayed receipts cannot affect the
+                    // explicitly resumed job. Preserve its account/term binding.
+                    record.put("cancelRequested", false).put("state", "failed").put("phase", "accepted")
+                        .put("token", "").put("leaseUntil", 0).put("nextAttempt", 0)
                     write(record)
                 }
                 if (record != null && record.getString("revision") == payload.getString("revision") &&
                     record.getString("owner") == payload.getString("owner") && record.getString("termCode") == payload.getString("termCode")) {
+                    // The newest school snapshot can also revert to the revision
+                    // already executing; in that case discard an older deferred one.
+                    if (record.has("nextPayload")) { record.remove("nextPayload"); write(record) }
                     // A successful receipt is historical: the host may have been edited,
                     // or the current week may have advanced. Recheck the bound table.
                     if (record.optString("state") == "applied") {
@@ -69,15 +76,21 @@ class ManagedSyncProvider : ContentProvider() {
                     if (record.optString("state") != "applied") wakeHost()
                     return@synchronized reply(record)
                 }
+                if (record != null && record.optString("state") !in listOf("applied", "failed") &&
+                    record.getString("owner") == payload.getString("owner") && record.getString("termCode") == payload.getString("termCode")) {
+                    // Never overwrite the identity or lease of an in-flight write.
+                    // Keep only the newest desired payload and drain it at completion.
+                    record.put("nextPayload", payload)
+                    write(record)
+                    wakeHost()
+                    return@synchronized clientReply(record)
+                }
                 check(record == null || record.optString("state") in listOf("applied", "failed")) { "previous_revision_unresolved" }
                 // The target binding belongs to exactly one school account + term.
                 val bindings = record?.optJSONObject("bindings") ?: JSONObject()
                 val bindingKey = payload.getString("owner") + ":" + payload.getString("termCode")
                 val tableId = bindings.optString(bindingKey)
-                record = JSONObject().put("payload", payload).put("owner", payload.getString("owner"))
-                    .put("termCode", payload.getString("termCode")).put("revision", payload.getString("revision"))
-                    .put("tableId", tableId).put("bindings", bindings).put("state", "accepted").put("phase", "accepted").put("cancelRequested", false)
-                    .put("message", "queued_for_host").put("updatedAt", Instant.now().toString())
+                record = queuedRecord(payload, bindings, tableId)
                 write(record)
                 wakeHost()
                 reply(record)
@@ -85,7 +98,7 @@ class ManagedSyncProvider : ContentProvider() {
             "status" -> {
                 if (record != null && ((extras?.getString("owner")?.let { it != record.optString("owner") } == true) ||
                     (extras?.getString("termCode")?.let { it != record.optString("termCode") } == true))) record = null
-                reply(record)
+                clientReply(record)
             }
             "cancel" -> {
                 val owner = extras?.getString("owner") ?: error("missing_owner")
@@ -99,6 +112,7 @@ class ManagedSyncProvider : ContentProvider() {
                     .put("revision", "").put("tableId", "").put("bindings", JSONObject())
                     .put("state", "accepted").put("phase", "accepted")
                 val decision = ManagedCancellation.request(record.optString("state"), record.optString("phase"), record.optString("token").isNotEmpty())
+                record.remove("nextPayload")
                 record.put("cancelRequested", true).put("state", decision.state).put("phase", decision.phase)
                     .put("message", decision.message).put("updatedAt", Instant.now().toString())
                 write(record)
@@ -107,10 +121,18 @@ class ManagedSyncProvider : ContentProvider() {
             "host_take" -> {
                 if (record == null || record.optString("state") in listOf("applied", "failed") ||
                     record.optLong("nextAttempt") > System.currentTimeMillis() ||
-                    (record.optString("token").isNotEmpty() && record.optLong("leaseUntil") > System.currentTimeMillis())) return@synchronized Bundle.EMPTY
-                record.put("token", UUID.randomUUID().toString()).put("leaseUntil", System.currentTimeMillis() + 600_000)
+                    ManagedHostLease.active(record.optString("token"), record.optLong("leaseUntil"), System.currentTimeMillis())) return@synchronized Bundle.EMPTY
+                record.put("token", UUID.randomUUID().toString()).put("leaseUntil", ManagedHostLease.until(System.currentTimeMillis()))
                 write(record)
                 Bundle().apply { putString("job", JSONObject(record.toString()).toString()) }
+            }
+            "host_heartbeat" -> {
+                check(record != null && record.optString("token").isNotEmpty() &&
+                    extras?.getString("token") == record.optString("token") &&
+                    record.optString("state") in listOf("accepted", "pending")) { "stale_host_lease" }
+                record.put("leaseUntil", ManagedHostLease.until(System.currentTimeMillis()))
+                write(record)
+                reply(record)
             }
             "host_receipt" -> {
                 requireNotNull(record) { "missing_job" }
@@ -150,6 +172,12 @@ class ManagedSyncProvider : ContentProvider() {
                     .put("message", savedMessage).put("updatedAt", Instant.now().toString())
                 if (id.isNotEmpty()) record.getJSONObject("bindings").put(record.getString("owner") + ":" + record.getString("termCode"), id)
                 if (isFinal) record.put("token", "").put("leaseUntil", 0).put("nextAttempt", System.currentTimeMillis() + 60_000)
+                else record.put("leaseUntil", ManagedHostLease.until(System.currentTimeMillis()))
+                val next = record.optJSONObject("nextPayload")
+                if (isFinal && !canceled && savedState in listOf("applied", "failed") && next != null) {
+                    val bindings = record.getJSONObject("bindings")
+                    record = queuedRecord(next, bindings, bindings.optString(next.getString("owner") + ":" + next.getString("termCode")))
+                }
                 write(record)
                 reply(record)
             }
@@ -225,13 +253,54 @@ class ManagedSyncProvider : ContentProvider() {
         putBoolean("allowMutation", record != null && !record.optBoolean("cancelRequested"))
         for (key in listOf("revision", "owner", "termCode", "tableId", "message", "updatedAt", "phase")) putString(key, record?.optString(key).orEmpty())
     }
+    private fun clientReply(record: JSONObject?) = reply(record).apply {
+        record?.optJSONObject("nextPayload")?.let { next ->
+            for (key in listOf("owner", "termCode", "revision")) putString(key, next.getString(key))
+            putString("state", "accepted"); putString("phase", "queued"); putString("message", "queued_after_current")
+        }
+    }
+    private fun queuedRecord(payload: JSONObject, bindings: JSONObject, tableId: String) =
+        JSONObject().put("payload", payload).put("owner", payload.getString("owner"))
+            .put("termCode", payload.getString("termCode")).put("revision", payload.getString("revision"))
+            .put("tableId", tableId).put("bindings", bindings).put("state", "accepted").put("phase", "accepted").put("cancelRequested", false)
+            .put("message", "queued_for_host").put("updatedAt", Instant.now().toString())
     private fun wakeHost() {
-        val identity = Binder.clearCallingIdentity()
-        try {
-            val url = "voiceassist://aiweb/?source=widget&flag=268468224&url=" + Uri.encode("https://i.ai.mi.com/h5/precache/ai-schedule/")
-            requireNotNull(context).startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.miui.voiceassist").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: Exception) { /* durable accepted state remains visible to client */ }
-        finally { Binder.restoreCallingIdentity(identity) }
+        val app = requireNotNull(context).applicationContext
+        backgroundSignal?.let { it(app); return }
+        WAKE.execute {
+            try {
+                // Hold the provider dependency while the background job runs so
+                // XiaoAi can execute even with every Activity closed.
+                checkNotNull(app.contentResolver.acquireContentProviderClient(ManagedNativeSync.HOST_URI)).use { client ->
+                    val result = client.call(ManagedNativeSync.METHOD, null, null)
+                    check(result?.getBoolean("background") == true) { "background_host_unavailable" }
+                    val deadline = System.currentTimeMillis() + 120_000
+                    var nextWake = 0L
+                    while (System.currentTimeMillis() < deadline) {
+                        val current = synchronized(LOCK) { read() }
+                        if (current?.optString("state") in listOf(null, "applied", "failed")) break
+                        val now = System.currentTimeMillis()
+                        // A second apply can arrive between the previous final
+                        // receipt and this polling loop observing it. Poke an idle
+                        // queue instead of holding its next notification for 2 min.
+                        if (current != null && !ManagedHostLease.active(current.optString("token"), current.optLong("leaseUntil"), now) &&
+                            current.optLong("nextAttempt") <= now && now >= nextWake) {
+                            client.call(ManagedNativeSync.METHOD, null, null)
+                            nextWake = now + 1000
+                        }
+                        Thread.sleep(250)
+                    }
+                }
+            } catch (_: Exception) {
+                synchronized(LOCK) {
+                    val current = read()
+                    if (current != null && current.optString("state") !in listOf("applied", "failed") && current.optString("token").isEmpty()) {
+                        current.put("message", "background_host_unavailable")
+                        write(current)
+                    }
+                }
+            }
+        }
     }
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = throw UnsupportedOperationException()
     override fun getType(uri: Uri): String? = null

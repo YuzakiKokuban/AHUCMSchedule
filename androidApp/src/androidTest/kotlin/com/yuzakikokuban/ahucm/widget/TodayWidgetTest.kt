@@ -54,7 +54,7 @@ class TodayWidgetTest {
             listOf(Configuration.UI_MODE_NIGHT_NO, Configuration.UI_MODE_NIGHT_YES).forEach { mode ->
                 val config = Configuration(context.resources.configuration).apply { uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or mode }
                 val themed = context.createConfigurationContext(config)
-                val view = TodayWidgetViews.create(themed, course, 77).apply(themed, FrameLayout(themed))
+                val view = TodayWidgetViews.create(themed, course, 77).apply(themed, android.appwidget.AppWidgetHostView(themed))
                 assertTrue(view.findViewById<TextView>(R.id.widget_date).text.contains("10月24日"))
                 assertEquals(1, view.findViewById<ListView>(R.id.widget_courses).adapter.count)
                 val row = TodayWidgetViews.row(themed, course, 0).apply(themed, FrameLayout(themed))
@@ -74,7 +74,7 @@ class TodayWidgetTest {
                 File(context.cacheDir, "widget-${if (mode == Configuration.UI_MODE_NIGHT_YES) "night" else "day"}.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 bitmap.recycle()
                 val empty = WidgetSnapshot(null, TodaySchedule.project(emptyList(), null, now))
-                val emptyView = TodayWidgetViews.create(themed, empty, 78).apply(themed, FrameLayout(themed))
+                val emptyView = TodayWidgetViews.create(themed, empty, 78).apply(themed, android.appwidget.AppWidgetHostView(themed))
                 assertEquals(0, emptyView.findViewById<ListView>(R.id.widget_courses).adapter.count)
                 assertTrue(emptyView.findViewById<TextView>(R.id.widget_empty).text.contains("同步或导入"))
             }

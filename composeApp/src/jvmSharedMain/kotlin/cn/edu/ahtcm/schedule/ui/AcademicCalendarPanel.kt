@@ -63,7 +63,10 @@ internal fun AcademicCalendarPanel(
             Text(if (loading) "正在同步校历…" else "这个学期还没有缓存校历")
             if (!authenticated) TextButton("前往连接教务", onConnect)
         } else Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f).testTag("calendar-swipe").periodSwipe(
+                { if (month > months.first()) shownMonth = months[months.indexOf(month) - 1].toString() },
+                { if (month < months.last()) shownMonth = months[months.indexOf(month) + 1].toString() }
+            ).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AnimatedContent(targetState = month, modifier = Modifier.fillMaxWidth().clipToBounds(),
                     transitionSpec = { directionalSlide(targetState > initialState, motionTravel) }, label = "calendar-month") { pageMonth ->
                     BoxWithConstraints(Modifier.fillMaxWidth()) {

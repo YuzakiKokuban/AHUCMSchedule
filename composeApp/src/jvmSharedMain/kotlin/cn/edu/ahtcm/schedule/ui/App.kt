@@ -384,7 +384,8 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             Text(if (current.source == "school") "上次教务同步 · $formatted${if (!authenticated) "  ／  请登录检查更新" else ""}" else "文件导入 · $formatted  ／  请同步确认最新安排", fontSize = 12.sp, color = Muted)
                             if (current.periods.isEmpty() && !LocalAppLayout.current.shortWindow) Text("作息时间待同步", fontSize = 11.sp, color = Muted)
                             Spacer(Modifier.height(if (LocalAppLayout.current.shortWindow) 2.dp else 8.dp))
-                            AnimatedContent(targetState = monday, modifier = Modifier.weight(1f).clipToBounds(),
+                            AnimatedContent(targetState = monday, modifier = Modifier.weight(1f).clipToBounds()
+                                .testTag("week-swipe").periodSwipe({ monday = monday.minusWeeks(1) }, { monday = monday.plusWeeks(1) }),
                                 transitionSpec = {
                                     directionalSlide(targetState > initialState, motionTravel)
                                 }, label = "week") { shownMonday ->

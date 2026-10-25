@@ -37,6 +37,20 @@ object ManagedHostSync {
         var active = false
         var busy = false
         var lastReportedSeq = -1
+        var lastRenewal = 0L
+        fun transportFailed(web: WebView, error: Exception) {
+            Log.w("AhuHostSync", "Receipt transport failed: ${error.javaClass.simpleName}")
+            if (error.message?.contains("stale_host_lease") == true) {
+                // Fence the old driver's next checkpoint before allowing a new
+                // claim. Its late callbacks retain only the retired local box.
+                web.evaluateJavascript("""
+                    (function(){const b=window.__ahuSyncJob;
+                    if(b&&b.token===${JSONObject.quote(token)}){b.cancelRequested=true;b.denied=b.seq;delete window.__ahuSyncJob;}})();
+                """.trimIndent(), null)
+                active = false
+                token = null
+            }
+        }
         val loop = object : Runnable {
             override fun run() {
                 val web = weak.get() ?: return
@@ -119,8 +133,22 @@ object ManagedHostSync {
                             val encoded = JSONArray("[$raw]").optString(0)
                             if (encoded == "null" || encoded.isBlank()) { active = false; return@evaluateJavascript }
                             val snapshot = JSONObject(encoded)
-                            check(snapshot.getString("token") == token)
-                            if (snapshot.isNull("report")) return@evaluateJavascript
+                            if (snapshot.getString("token") != token) { active = false; return@evaluateJavascript }
+                            if (snapshot.isNull("report")) {
+                                if (System.currentTimeMillis() - lastRenewal >= ManagedHostLease.HEARTBEAT_MS) {
+                                    val resolver = web.context.applicationContext.contentResolver
+                                    val extras = Bundle().apply { putString("token", token) }
+                                    inFlight = true
+                                    offMain(web, { resolver.call(ManagedSyncProvider.URI, "host_heartbeat", null, extras) }) { result ->
+                                        try {
+                                            checkNotNull(result.getOrThrow())
+                                            lastRenewal = System.currentTimeMillis()
+                                        } catch (e: Exception) { transportFailed(web, e) }
+                                        finally { busy = false }
+                                    }
+                                }
+                                return@evaluateJavascript
+                            }
                             val receipt = snapshot.getJSONObject("report")
                             if (snapshot.getInt("seq") != lastReportedSeq) {
                                 lastReportedSeq = snapshot.getInt("seq")
@@ -137,6 +165,7 @@ object ManagedHostSync {
                             offMain(web, { resolver.call(ManagedSyncProvider.URI, "host_receipt", null, extras) }) { result ->
                                 try {
                                     val saved = checkNotNull(result.getOrThrow())
+                                    lastRenewal = System.currentTimeMillis()
                                     if (!trusted(web.url)) { active = false; return@offMain }
                                     if (isFinal) {
                                         web.evaluateJavascript("delete window.__ahuSyncJob", null)
@@ -146,7 +175,7 @@ object ManagedHostSync {
                                         web.evaluateJavascript("AhuManagedSync.acknowledge(window.__ahuSyncJob,${JSONObject.quote(token)},$seq,${saved.getBoolean("allowMutation")})", null)
                                     }
                                 } catch (e: Exception) {
-                                    Log.w("AhuHostSync", "Receipt transport failed: ${e.javaClass.simpleName}")
+                                    transportFailed(web, e)
                                 } finally { busy = false }
                             }
                         } catch (e: Exception) {

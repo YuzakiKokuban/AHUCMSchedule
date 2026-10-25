@@ -127,9 +127,18 @@ class MainActivity : ComponentActivity() {
     override fun onStop() { model.foreground.value = false; super.onStop() }
 }
 
-/** Turns the durable sync state into actionable text; the phase/message keep a
- *  stuck job from being shown as a fresh "waiting" state. */
-internal fun moduleStatusText(state: String?, phase: String?, message: String?): String = when (state) {
+internal fun moduleEnableFailureText(error: Exception): String = when (error.message) {
+    "module_not_active" -> "小爱模块尚未连接，请在 LSPosed 启用岐黄课表并勾选小爱助手"
+    "canceled_write_unresolved" -> "上次小爱任务仍在取消或核验，请稍后重新开启自动管理"
+    "previous_revision_unresolved" -> "上次小爱同步尚未结束，请稍后重试"
+    else -> "小爱自动管理未开启，请检查教务连接和小爱同步状态"
+}
+
+/** Keep pending background work distinct from success and from an unavailable host adapter. */
+internal fun moduleStatusText(state: String?, phase: String?, message: String?): String = when {
+    message == "background_host_unavailable" -> "小爱后台通道尚未就绪，请检查模块状态或重启小爱进程"
+    message == "queued_after_current" -> "最新课表已排队，当前任务完成后立即后台更新"
+    else -> when (state) {
     "applied" -> "小爱课表已更新并核验"
     "failed" -> when (message) {
         "course_write_not_persisted" -> "小爱未保存课程，请重新点击「开启小爱课表自动管理」"
@@ -140,10 +149,11 @@ internal fun moduleStatusText(state: String?, phase: String?, message: String?):
     // Pending jobs are repaired on the next host claim. Never recommend stopping
     // management here: cancellation of an unclaimed pending job cannot be resumed.
     "pending" -> when (phase) {
-        "verifying" -> "小爱课表正在核验或修复；请保持小爱课程表打开，或重新点击「开启小爱课表自动管理」"
-        else -> "等待小爱助手完成更新；请打开小爱课程表并保持前台"
+        "verifying" -> "正在后台核验并修复小爱课表"
+        else -> "小爱课表已排队，正在后台同步"
     }
-    else -> "等待小爱助手完成更新；请打开小爱课程表并保持前台"
+    else -> "小爱课表已排队，正在后台同步"
+    }
 }
 
 class ImportViewModel(application: Application) : AndroidViewModel(application) {
@@ -164,7 +174,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     val foreground = MutableStateFlow(false)
     val selections = MutableStateFlow<FileSelection?>(null)
     val feedback = MutableStateFlow<IntegrationFeedback?>(null)
-    val moduleStatus = MutableStateFlow("需要支持 API 102 的 LSPosed；启用岐黄课表并勾选小爱助手")
+    val moduleStatus = MutableStateFlow("小爱模块已连接，开启自动管理后同步当前学期课表")
     private val authPrefs = application.getSharedPreferences("auth-state",0)
     private val prefs = application.getSharedPreferences("integrations", 0)
     private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -263,7 +273,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     } }
     fun enableModule() { io.launch {
         try {
-            check((context as ScheduleApplication).moduleActivation.value) { "模块尚未激活" }
+            check((context as ScheduleApplication).moduleActivation.value) { "module_not_active" }
             school.withSession {
                 val snapshot = fresh()
                 val owner = requireNotNull(storage.activeAccountKey)
@@ -271,7 +281,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
                 prefs.edit().putBoolean("module:$owner",true).apply()
                 report(moduleStatus.value)
             }
-        } catch (_: Exception) { report("小爱自动管理未开启，请先登录并在 LSPosed 启用岐黄课表",true) }
+        } catch (e: Exception) { report(moduleEnableFailureText(e),true) }
     } }
     fun syncIntegrations(snapshot: ScheduleSnapshot): List<String> {
         val owner = storage.activeAccountKey ?: return emptyList()
@@ -288,9 +298,6 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
             ?: error("missing_module_receipt")
         check(reply.getInt("schema")==1 && reply.getString("owner")==owner && reply.getString("termCode")==snapshot.termCode && reply.getString("revision")==payload.revision)
         showModuleState(reply)
-        if(reply.getString("state")!="applied" && foreground.value) {
-            io.launch(Dispatchers.Main) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("voiceassist://aiweb/?source=widget&flag=268468224&url=https%3A%2F%2Fi.ai.mi.com%2Fh5%2Fprecache%2Fai-schedule%2F")).setPackage("com.miui.voiceassist").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
-        }
     }
     private fun refreshModuleStatus() = school.withSession {
         val snapshot = storage.schedule.snapshot() ?: return@withSession

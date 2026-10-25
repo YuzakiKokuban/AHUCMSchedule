@@ -4,6 +4,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ModuleStatusTextTest {
+    @Test fun canceledJobExplainsTheQueueInsteadOfClaimingTheModuleIsInactive() {
+        assertEquals("上次小爱任务仍在取消或核验，请稍后重新开启自动管理", moduleEnableFailureText(IllegalStateException("canceled_write_unresolved")))
+        assertEquals("上次小爱同步尚未结束，请稍后重试", moduleEnableFailureText(IllegalStateException("previous_revision_unresolved")))
+        assertEquals("小爱自动管理未开启，请检查教务连接和小爱同步状态", moduleEnableFailureText(IllegalStateException("network_error")))
+    }
+
+    @Test fun backgroundFailuresAndDeferredUpdatesHaveAccurateMessages() {
+        assertEquals("小爱后台通道尚未就绪，请检查模块状态或重启小爱进程", moduleStatusText("accepted", "verifying", "background_host_unavailable"))
+        assertEquals("最新课表已排队，当前任务完成后立即后台更新", moduleStatusText("accepted", "queued", "queued_after_current"))
+    }
+
     @Test fun verifiedStateIsExplicit() {
         assertEquals("小爱课表已更新并核验", moduleStatusText("applied", "verified", "server_readback_verified"))
     }
@@ -25,14 +36,14 @@ class ModuleStatusTextTest {
     }
 
     @Test fun pendingVerificationNeverTellsTheUserToStop() {
-        assertEquals("小爱课表正在核验或修复；请保持小爱课程表打开，或重新点击「开启小爱课表自动管理」", moduleStatusText("pending", "verifying", ""))
+        assertEquals("正在后台核验并修复小爱课表", moduleStatusText("pending", "verifying", ""))
     }
 
     @Test fun pendingBeforeHostTakeKeepsTheSetupHint() {
-        assertEquals("等待小爱助手完成更新；请打开小爱课程表并保持前台", moduleStatusText("pending", "accepted", ""))
+        assertEquals("小爱课表已排队，正在后台同步", moduleStatusText("pending", "accepted", ""))
     }
 
     @Test fun unknownStateKeepsTheSetupHint() {
-        assertEquals("等待小爱助手完成更新；请打开小爱课程表并保持前台", moduleStatusText(null, null, null))
+        assertEquals("小爱课表已排队，正在后台同步", moduleStatusText(null, null, null))
     }
 }

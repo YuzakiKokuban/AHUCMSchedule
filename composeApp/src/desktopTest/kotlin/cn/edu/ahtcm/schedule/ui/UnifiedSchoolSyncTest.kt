@@ -8,6 +8,33 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class UnifiedSchoolSyncTest {
+    @Test fun `saved current timetable reaches integrations before calendar and notice requests`() = runBlocking {
+        val dir = Files.createTempDirectory("immediate-integration")
+        try {
+            for (requested in listOf(null, layoutTerm)) {
+                val requests = mutableListOf<SchoolRequest>()
+                var called = false
+                val platform = object : PlatformActions {
+                    override val repository = ScheduleRepository(dir)
+                    override val academicCalendarStore = AcademicCalendarStore(dir)
+                    override val school = school(requests)
+                    override val sessionReady = true
+                    override fun onScheduleSynchronized(snapshot: ScheduleSnapshot): List<String> {
+                        assertTrue(requests.any { URI(it.url).path == "/new/printkb/prtxskb" })
+                        assertFalse(requests.any { URI(it.url).path == "/new/student/xlxx/xlxxlist.page" })
+                        assertEquals(snapshot, repository.snapshot(snapshot.termCode))
+                        called = true
+                        return emptyList()
+                    }
+                    override fun openSchool() = Unit
+                    override fun chooseXls(onResult: (ByteArray?, String?) -> Unit) = Unit
+                }
+                synchronizeSchool(platform, requested)
+                assertTrue(called)
+            }
+        } finally { dir.toFile().deleteRecursively() }
+    }
+
     @Test fun `one sync fetches timetable and calendar for chosen term while calendar page is absent`() = runBlocking {
         val dir = Files.createTempDirectory("unified-sync")
         try {

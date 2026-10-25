@@ -8,5 +8,9 @@ internal object ManagedCancellation {
         state == "accepted" && phase == "accepted" && !claimed -> Decision("failed", "canceled", "canceled_before_host_take")
         else -> Decision("pending", phase, "cancel_requested")
     }
-    fun canResume(state: String, claimed: Boolean): Boolean = !claimed && state in listOf("applied", "failed")
+    // Explicit re-enable may repair a bound table after cancellation settles.
+    // An unacknowledged creation with no target remains ambiguous.
+    fun canResume(state: String, claimed: Boolean, phase: String = "", tableId: String = ""): Boolean =
+        !claimed && (state in listOf("applied", "failed") ||
+            (state == "pending" && (phase == "accepted" || tableId.isNotEmpty())))
 }

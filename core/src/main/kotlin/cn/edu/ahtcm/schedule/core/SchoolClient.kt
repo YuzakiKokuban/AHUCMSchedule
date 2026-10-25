@@ -190,7 +190,7 @@ class SchoolClient(private val transport: SchoolTransport = SchoolHttpTransport(
         val parsed = try { XlsScheduleImporter().parse(bytes) }
             catch (_: ImportException) { throw SchoolException("学校未返回完整有效的课表，已保留上次结果") }
         if (parsed.termCode != term) throw SchoolException("导出课表学期不一致，已保留上次结果")
-        return SchoolTimetable(bytes, periods)
+        return SchoolTimetable(bytes, periods, currentTerm)
     }
 
     @Synchronized fun fetchNotices(): List<RawNotice> {

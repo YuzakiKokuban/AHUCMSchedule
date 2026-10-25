@@ -19,7 +19,7 @@ data class ScheduleSnapshot(
 @Serializable
 data class ClassPeriod(val section: Int, val start: String, val end: String)
 
-data class SchoolTimetable(val xls: ByteArray, val periods: List<ClassPeriod>)
+data class SchoolTimetable(val xls: ByteArray, val periods: List<ClassPeriod>, val currentTermCode: String? = null)
 
 class ImportException(message: String, cause: Throwable? = null) : Exception(message, cause)
 

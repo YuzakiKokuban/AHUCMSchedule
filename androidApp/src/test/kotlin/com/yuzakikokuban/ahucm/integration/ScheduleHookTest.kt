@@ -56,9 +56,11 @@ class ScheduleHookTest {
         module.onPackageReady(ready("com.example.other"))
         assertTrue(registrations.isEmpty())
         repeat(2) { module.onPackageReady(ready("com.miui.voiceassist")) }
-        assertEquals(1, registrations.size)
-        assertEquals("com.xiaomi.voiceassistant.commonweb.CommonWebView", registrations.single().executable.declaringClass.name)
-        assertArrayEquals(arrayOf(Context::class.java), registrations.single().executable.parameterTypes)
+        assertEquals(2, registrations.size)
+        val constructor = registrations.single { it.executable is java.lang.reflect.Constructor<*> }
+        assertEquals("com.xiaomi.voiceassistant.commonweb.CommonWebView", constructor.executable.declaringClass.name)
+        assertArrayEquals(arrayOf(Context::class.java), constructor.executable.parameterTypes)
+        assertTrue(registrations.any { it.executable.name == "call" })
     }
 
     @Test fun constructorHookPreservesHostResultAndCallsOriginalExactlyOnce() {
@@ -69,7 +71,7 @@ class ScheduleHookTest {
         val chain = proxy<XposedInterface.Chain> { method, _ ->
             if (method == "proceed") { calls++; marker } else null
         }
-        assertSame(marker, registrations.single().hooker.intercept(chain))
+        assertSame(marker, registrations.single { it.executable is java.lang.reflect.Constructor<*> }.hooker.intercept(chain))
         assertEquals(1, calls)
     }
 
@@ -81,7 +83,7 @@ class ScheduleHookTest {
         val chain = proxy<XposedInterface.Chain> { method, _ ->
             if (method == "proceed") { calls++; throw failure } else null
         }
-        try { registrations.single().hooker.intercept(chain); fail("Host failure must propagate") }
+        try { registrations.single { it.executable is java.lang.reflect.Constructor<*> }.hooker.intercept(chain); fail("Host failure must propagate") }
         catch (actual: IllegalStateException) { assertSame(failure, actual) }
         assertEquals(1, calls)
     }
@@ -93,7 +95,7 @@ class ScheduleHookTest {
         module.onPackageReady(ready("com.miui.voiceassist", missingLoader))
         assertTrue(registrations.isEmpty())
         module.onPackageReady(ready("com.miui.voiceassist"))
-        assertEquals(1, registrations.size)
+        assertEquals(2, registrations.size)
     }
 
     @Test fun liveReloadIsRejectedWhileWebViewWorkersMayStillBeRunning() {

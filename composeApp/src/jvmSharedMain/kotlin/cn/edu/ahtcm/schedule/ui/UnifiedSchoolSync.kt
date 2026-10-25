@@ -41,10 +41,15 @@ internal suspend fun synchronizeSchool(platform: PlatformActions, requested: Aca
                 if (!platform.sessionReady) throw SchoolException("请重新登录后同步")
             }
             checkOwner()
+            var schoolCurrentTerm: String? = null
             val result = repository.synchronizeSchool(beforeCommit = ::checkOwner) {
-                school.downloadSchoolTimetable(requested).also { checkOwner() }
+                school.downloadSchoolTimetable(requested).also { schoolCurrentTerm = it.currentTermCode; checkOwner() }
             }
             checkOwner()
+            // The timetable endpoint already identifies the school's current
+            // term. Deliver its saved snapshot before unrelated calendar/notices.
+            val integrate = result is UpdateResult.Success && (requested == null || schoolCurrentTerm == result.snapshot.termCode)
+            val integrationErrors = if (integrate) platform.onScheduleSynchronized(result.snapshot) else emptyList()
             var terms: AcademicCalendarTerms? = null
             var calendarError: String? = null
             if (calendarStore != null) try {
@@ -81,9 +86,6 @@ internal suspend fun synchronizeSchool(platform: PlatformActions, requested: Aca
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { "通知同步失败，保留上次结果；请检查网络或重新登录。" }
             checkOwner()
-            // Browsing old semesters must not replace the user's active external calendars.
-            val integrate = result is UpdateResult.Success && (requested == null || terms?.currentCode == result.snapshot.termCode)
-            val integrationErrors = if (integrate) platform.onScheduleSynchronized(result.snapshot) else emptyList()
             SchoolRefresh(result, noticeStore?.snapshot(), noticeError, term?.let { calendarStore?.snapshot(it.code) }, calendarError, term, integrationErrors)
         }
     }
