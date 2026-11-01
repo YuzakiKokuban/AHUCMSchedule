@@ -91,5 +91,5 @@ dependencies {
     implementation("org.jetbrains.compose.foundation:foundation:1.12.2")
     implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
                 implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 }
