@@ -54,7 +54,7 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-37.2 build-tools;36.0.0'
           log-accepted-android-sdk-licenses: false
-      - uses: gradle/actions/setup-gradle@v6.4.0
+      - uses: gradle/actions/setup-gradle@v6.4.1
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Validate version and source
@@ -134,7 +134,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v6.4.0
+      - uses: gradle/actions/setup-gradle@v6.4.1
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Test desktop and create portable application
