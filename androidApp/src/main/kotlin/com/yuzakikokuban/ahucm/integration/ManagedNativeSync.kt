@@ -109,7 +109,10 @@ internal object ManagedNativeSync {
         @JavascriptInterface fun request(id: String, raw: String) {
             requests.execute {
                 if (lifetime.finished) return@execute
-                val response = runCatching { request.execute(raw) }.getOrElse { "{\"code\":-1}" }
+                val response = runCatching { request.execute(raw) }.getOrElse { error ->
+                    val reason = error.message?.takeIf { it in setOf("host_authorization_unavailable", "host_authorization_rejected") }
+                    JSONObject().put("code", -1).put("ahuTransportError", reason).toString()
+                }
                 main.post {
                     if (!lifetime.finished) web?.evaluateJavascript("window.__ahuNative.receive(${JSONObject.quote(id)},${JSONObject.quote(response)})", null)
                 }

@@ -36,7 +36,7 @@ function fixture({mismatch=false,uncertain=false,other=false,existing=false,take
     }
     if(url.endsWith('/table')&&method==='PUT'){setting={...data.setting,sectionTimes:data.setting.sections};return {code:0,data:true};}
     if(url.endsWith('/table')&&method==='GET')return {code:0,data:{courses:mismatch?[]:courses,setting}};
-    if(url.endsWith('/table_switch')){tables.forEach(t=>t.current=t.id===10?1:0);return {code:0,data:true};}
+    if(url.endsWith('/table_switch')){tables.forEach(t=>t.current=t.id===data.toCtId?1:0);return {code:0,data:true};}
     throw Error('unexpected request');
   };
   return {request,writes,receipts,checkpoint:async r=>{receipts.push(r);return true;},job:{payload,phase:uncertain?'courses-writing':existing||taken?'verifying':'accepted',tableId:uncertain||existing||taken?'10':''}};
@@ -293,4 +293,66 @@ test('cancellation after the last authorized write verifies completion without r
  const r=await driver.run(f.job,f.request,checkpoint);
  assert.equal(f.writes.length,4);assert.equal(r.state,'applied');assert.equal(r.cancelRequested,true);
  assert.equal(f.writes.some(w=>w.method==='DELETE'),false);
+});
+
+test('an unbound collision exposes the exact candidate without writing',async()=>{
+ const f=fixture({taken:true});
+ const result=await driver.run({...f.job,tableId:'',phase:'accepted'},f.request,f.checkpoint);
+ assert.equal(result.message,'unowned_table_name_collision');
+ assert.equal(result.candidateId,'11');
+ assert.equal(f.writes.length,0);
+});
+test('a confirmed candidate is read back before any repair and never replaced by another ID',async()=>{
+ const f=fixture({taken:true});
+ const requests=[];
+ const request=q=>{requests.push(q);return f.request(q);};
+ const stale=await driver.run({...f.job,tableId:'',phase:'accepted',rebindId:'10'},request,f.checkpoint);
+ assert.equal(stale.message,'rebind_target_changed');
+ assert.equal(f.writes.length,0);
+ const result=await driver.run({...f.job,tableId:'',phase:'accepted',rebindId:'11'},request,f.checkpoint);
+ assert.equal(result.state,'applied');
+ assert.equal(result.tableId,'11');
+ assert.ok(requests.findIndex(q=>q.method==='GET'&&q.url.endsWith('/table')&&q.data.ctId==='11') <
+   requests.findIndex(q=>q.method!=='GET'));
+ assert.ok(f.writes.every(q=>!q.data.ctId||q.data.ctId===11));
+});
+
+test('create beside a confirmed collision preserves the old table and remembers the new target',async()=>{
+ const f=fixture({taken:true});
+ const result=await driver.run({...f.job,tableId:'',phase:'accepted',createBesideId:'11'},f.request,f.checkpoint);
+ assert.equal(result.state,'applied');
+ assert.equal(result.tableId,'10');
+ assert.ok(f.writes.some(q=>q.method==='POST'&&q.url.endsWith('/table')&&q.data.name.endsWith('-R1')));
+ assert.ok(f.writes.every(q=>q.data.ctId!==11));
+ const tables=(await f.request({method:'GET',url:'/course-multi/tables',data:{}})).data;
+ assert.equal(tables.find(t=>t.id===11).name,'AHUCM-'+payload.owner.slice(0,16)+'-'+payload.termCode);
+ f.writes.length=0;
+ const next=await driver.run({...f.job,tableId:'10',phase:'verifying'},f.request,f.checkpoint);
+ assert.equal(next.state,'applied');
+ assert.equal(f.writes.length,0);
+});
+
+test('a candidate replaced during readback does not get bound or written',async()=>{
+ const f=fixture({taken:true});
+ let reads=0;
+ const request=q=>{
+  if(q.url.endsWith('/tables')&&++reads>1){
+   return {code:0,data:[{id:12,name:'AHUCM-'+payload.owner.slice(0,16)+'-'+payload.termCode,current:1}]};
+  }
+  return f.request(q);
+ };
+ const result=await driver.run({...f.job,tableId:'',phase:'accepted',rebindId:'11'},request,f.checkpoint);
+ assert.equal(result.message,'rebind_target_changed');
+ assert.equal(result.tableId,'');
+ assert.equal(f.writes.length,0);
+});
+
+test('confirming a table that already matches verifies without rewriting it',async()=>{
+ const f=fixture();
+ assert.equal((await driver.run(f.job,f.request,f.checkpoint)).state,'applied');
+ f.writes.length=0;
+ const result=await driver.run({...f.job,rebindId:'10'},f.request,f.checkpoint);
+ assert.equal(result.state,'applied');
+ assert.equal(result.tableId,'10');
+ assert.equal(f.writes.length,0);
 });

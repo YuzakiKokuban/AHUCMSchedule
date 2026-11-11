@@ -44,9 +44,12 @@
   } catch(e) {return false;}
  }
  async function run(job,request,checkpoint) {
-  const p=job.payload, name='AHUCM-'+p.owner.slice(0,16)+'-'+p.termCode;
+  const p=job.payload, baseName='AHUCM-'+p.owner.slice(0,16)+'-'+p.termCode;
+  let name=baseName;
+  const matchesBoundName=tableName=>tableName===baseName||
+   (typeof tableName==='string'&&tableName.startsWith(baseName+'-R')&&/^[1-9][0-9]*$/.test(tableName.slice(baseName.length+2)));
   let tableId=job.tableId||'', phase=job.phase||'accepted';
-  let expectedStyles=null,verifiedColorCount=0;
+  let expectedStyles=null,verifiedColorCount=0,candidateId='';
   let cancelRequested=job.cancelRequested===true, hasMutation=phase!=='accepted';
   const report=()=>({state:'pending',phase,tableId,revision:p.revision,cancelRequested});
   const save=async next=>{
@@ -71,13 +74,15 @@
     hasMutation=true;
    }
    const r=await request({method,url:'/course-multi/'+path,data},1);
+   if(r&&['host_authorization_unavailable','host_authorization_rejected'].includes(r.ahuTransportError))throw Error(r.ahuTransportError);
    if(!r||Number(r.code)!==0)throw Error('host_api_rejected_or_unknown');return r.data;
   };
-  const verify=async()=>{
+  const verify=async expectedName=>{
    if(!tableId)return false;
    const d=await call('GET','table',{ctId:tableId});
    const tables=await call('GET','tables',{});
-   if(!sameCourses(d.courses,p.courses)||!sameSettings(d.setting,p)||!Array.isArray(tables)||!tables.some(t=>String(t.id)===String(tableId)&&t.name===name&&Number(t.current)===1))return false;
+   const bound=Array.isArray(tables)&&tables.find(t=>String(t.id)===String(tableId)&&(expectedName?t.name===expectedName:matchesBoundName(t.name)));
+   if(!bound||Number(bound.current)!==1||!sameCourses(d.courses,p.courses)||!sameSettings(d.setting,p))return false;
    if(JSON.parse(d.setting.extend||'{}').ahuRandomColors!==1)return false;
    const observed=new Map();
    for(const c of d.courses){
@@ -139,12 +144,12 @@
    if(!/^\d+$/.test(tableId)||tableId==='0')throw Error('invalid_created_table_id');
    await save('table-created');
   };
-  // The reserved table name identifies exactly one app-owned table. A binding
-  // whose table was deleted or renamed is replaced instead of kept forever; a
-  // table that already owns the reserved name is never adopted.
+  // Keep the durable ID tied to a reserved name. If the bound table was deleted
+  // or renamed, a same-name table still needs explicit confirmation of its ID.
   const ensureManagedTable=async tables=>{
-   if(tableId&&tables.some(t=>String(t.id)===String(tableId)&&t.name===name))return tables;
-   if(tables.some(t=>t.name===name))throw Error(tableId?'managed_table_identity_changed':'unowned_table_name_collision');
+   const bound=tableId&&tables.find(t=>String(t.id)===String(tableId)&&matchesBoundName(t.name));
+   if(bound){name=bound.name;return tables;}
+   if(tables.some(t=>t.name===name))throw Error('managed_table_identity_changed');
    await createManagedTable();
    const refreshed=await call('GET','tables',{});
    if(!Array.isArray(refreshed))throw Error('invalid_table_list');
@@ -175,13 +180,35 @@
     }
    }
    try {
-    return await attemptWrite(await ensureManagedTable(await call('GET','tables',{})));
+    let tables=await call('GET','tables',{});
+    if(!Array.isArray(tables))throw Error('invalid_table_list');
+    if(!tableId){
+     const matches=tables.filter(t=>t.name===name);
+     if(matches.length===1&&/^[1-9][0-9]*$/.test(String(matches[0].id)))candidateId=String(matches[0].id);
+     if(job.rebindId){
+      if(candidateId!==job.rebindId)throw Error('rebind_target_changed');
+      tableId=candidateId;
+      if(await verify(baseName))return verifiedReport();
+      tableId='';
+      tables=await call('GET','tables',{});
+      if(!Array.isArray(tables)||tables.filter(t=>t.name===name).length!==1||
+       !tables.some(t=>t.name===name&&String(t.id)===candidateId))throw Error('rebind_target_changed');
+      tableId=candidateId;
+     }else if(job.createBesideId){
+      if(candidateId!==job.createBesideId)throw Error('rebind_target_changed');
+      const names=new Set(tables.map(t=>t.name));
+      let suffix=1;
+      while(names.has(baseName+'-R'+suffix))suffix++;
+      name=baseName+'-R'+suffix;
+     }else if(matches.length)throw Error('unowned_table_name_collision');
+    }
+    return await attemptWrite(await ensureManagedTable(tables));
    } catch(e) {
     if(cancelRequested)return await canceled();
     // An interrupted mutation stays read-only for this claim; the next claim
     // repairs the bound table. An ambiguous table create has no known target and
     // must not be replayed by guessing.
-    return {...report(),state:phase==='accepted'?'failed':'pending',message:String(e.message||'host_failure').slice(0,160)};
+    return {...report(),candidateId,state:phase==='accepted'?'failed':'pending',message:String(e.message||'host_failure').slice(0,160)};
    }
   } catch(e) {
    if(cancelRequested)return await canceled();

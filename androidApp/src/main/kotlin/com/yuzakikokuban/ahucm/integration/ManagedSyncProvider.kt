@@ -69,6 +69,7 @@ class ManagedSyncProvider(private val backgroundSignal: ((android.content.Contex
                     // again. Every interrupted write has a different durable phase
                     // and remains restricted to readback-only recovery.
                     if (record.optString("state") == "failed" && record.optString("phase") == "accepted") {
+                        record.remove("candidateId")
                         record.put("state", "accepted").put("message", "queued_for_host")
                             .put("token", "").put("leaseUntil", 0).put("nextAttempt", 0)
                         write(record)
@@ -94,6 +95,26 @@ class ManagedSyncProvider(private val backgroundSignal: ((android.content.Contex
                 write(record)
                 wakeHost()
                 reply(record)
+            }
+            "rebind" -> {
+                val job = requireNotNull(record)
+                val confirmation = requireNotNull(extras)
+                val candidateId = job.optString("candidateId")
+                check(job.optString("state") == "failed" && job.optString("phase") == "accepted" &&
+                    job.optString("message") == "unowned_table_name_collision" &&
+                    job.optString("tableId").isEmpty() && !job.optBoolean("cancelRequested") &&
+                    candidateId.isNotEmpty() && candidateId == confirmation.getString("candidateId") &&
+                    job.optString("owner") == confirmation.getString("owner") &&
+                    job.optString("termCode") == confirmation.getString("termCode") &&
+                    job.optString("revision") == confirmation.getString("revision") &&
+                    job.optString("updatedAt") == confirmation.getString("updatedAt")) { "rebind_target_changed" }
+                val action = if (confirmation.getBoolean("createBeside")) "createBesideId" else "rebindId"
+                job.put(action, candidateId).put("state", "accepted").put("message", "queued_for_host")
+                    .put("nextAttempt", 0).put("updatedAt", Instant.now().toString())
+                job.remove("candidateId")
+                write(job)
+                wakeHost()
+                reply(job)
             }
             "status" -> {
                 if (record != null && ((extras?.getString("owner")?.let { it != record.optString("owner") } == true) ||
@@ -171,7 +192,15 @@ class ManagedSyncProvider(private val backgroundSignal: ((android.content.Contex
                 record.put("state", savedState).put("phase", savedPhase).put("tableId", id)
                     .put("message", savedMessage).put("updatedAt", Instant.now().toString())
                 if (id.isNotEmpty()) record.getJSONObject("bindings").put(record.getString("owner") + ":" + record.getString("termCode"), id)
-                if (isFinal) record.put("token", "").put("leaseUntil", 0).put("nextAttempt", System.currentTimeMillis() + 60_000)
+                if (isFinal) {
+                    record.remove("rebindId")
+                    record.remove("createBesideId")
+                    val candidate = receipt.optString("candidateId")
+                    if (savedMessage == "unowned_table_name_collision" && Regex("[1-9][0-9]*").matches(candidate)) {
+                        record.put("candidateId", candidate)
+                    } else record.remove("candidateId")
+                    record.put("token", "").put("leaseUntil", 0).put("nextAttempt", System.currentTimeMillis() + 60_000)
+                }
                 else record.put("leaseUntil", ManagedHostLease.until(System.currentTimeMillis()))
                 val next = record.optJSONObject("nextPayload")
                 if (isFinal && !canceled && savedState in listOf("applied", "failed") && next != null) {
@@ -251,7 +280,7 @@ class ManagedSyncProvider(private val backgroundSignal: ((android.content.Contex
         putString("state", record?.optString("state") ?: "pending")
         putBoolean("cancelRequested", record?.optBoolean("cancelRequested") == true)
         putBoolean("allowMutation", record != null && !record.optBoolean("cancelRequested"))
-        for (key in listOf("revision", "owner", "termCode", "tableId", "message", "updatedAt", "phase")) putString(key, record?.optString(key).orEmpty())
+        for (key in listOf("revision", "owner", "termCode", "tableId", "message", "updatedAt", "phase", "candidateId")) putString(key, record?.optString(key).orEmpty())
     }
     private fun clientReply(record: JSONObject?) = reply(record).apply {
         record?.optJSONObject("nextPayload")?.let { next ->

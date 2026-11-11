@@ -110,4 +110,32 @@ class ManagedSyncResumeTest {
         assertFalse(JSONObject(file.readText()).has("nextPayload"))
         assertEquals(2, signals.background)
     }
+
+    @Test fun rebindRequiresTheExactConfirmedCandidateAndQueuesWithoutAdoptingIt() = withProvider { provider, file, payload, signals ->
+        val conflict = journal(payload, tableId = "", phase = "accepted", lease = 0)
+            .put("bindings", JSONObject()).put("state", "failed").put("cancelRequested", false)
+            .put("token", "").put("message", "unowned_table_name_collision")
+            .put("candidateId", "11").put("updatedAt", "2026-11-11T12:00:00Z")
+        val confirmation = Bundle().apply {
+            for (key in listOf("owner", "termCode", "revision", "updatedAt", "candidateId")) {
+                putString(key, conflict.getString(key))
+            }
+        }
+        val original = conflict.toString()
+        file.writeText(original)
+        val stale = Bundle(confirmation).apply { putString("candidateId", "12") }
+        assertEquals("rebind_target_changed", runCatching { provider.call("rebind", null, stale) }.exceptionOrNull()?.message)
+        assertEquals(original, file.readText())
+        for (createBeside in listOf(false, true)) {
+            file.writeText(original)
+            confirmation.putBoolean("createBeside", createBeside)
+            val reply = provider.call("rebind", null, confirmation)
+            val queued = JSONObject(file.readText())
+            assertEquals("accepted", reply.getString("state"))
+            assertEquals("11", queued.getString(if (createBeside) "createBesideId" else "rebindId"))
+            assertEquals("", queued.getString("tableId"))
+            assertEquals(0, queued.getJSONObject("bindings").length())
+        }
+        assertEquals(2, signals.background)
+    }
 }

@@ -52,6 +52,8 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.window.WindowDialog
 
+data class XiaoAiConflict(val name: String, val tableId: String, val termCode: String, val revision: String, val observedAt: String)
+
 interface PlatformActions {
     val desktop: Boolean get() = false
     val syncGate: SyncGate? get() = null
@@ -79,6 +81,8 @@ interface PlatformActions {
     val moduleActivation: StateFlow<Boolean>? get() = null
     val moduleStatus: StateFlow<String>? get() = null
     fun manageXiaoAi(snapshot: ScheduleSnapshot) = Unit
+    val xiaoAiConflict: StateFlow<XiaoAiConflict?>? get() = null
+    fun resolveXiaoAiConflict(conflict: XiaoAiConflict, createBeside: Boolean) = Unit
     fun onScheduleSynchronized(snapshot: ScheduleSnapshot): List<String> = emptyList()
     val integrationFeedback: StateFlow<IntegrationFeedback?>? get() = null
     fun consumeFeedback(id: Long) = Unit
@@ -330,6 +334,8 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
             scope.launch { receiveFile(bytes, error) }
         }
     }
+    var rebindPrompt by remember { mutableStateOf<XiaoAiConflict?>(null) }
+    val xiaoAiConflict = platform.xiaoAiConflict?.collectAsState()?.value
     val theme = remember { ThemeController(ColorSchemeMode.MonetSystem) }
     val motionTravel = with(LocalDensity.current) { 80.dp.roundToPx() }
     MiuixTheme(controller = theme) {
@@ -468,6 +474,11 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                             }
                             val moduleState = platform.moduleStatus?.collectAsState()?.value
                             if (moduleState != null) { Spacer(Modifier.height(8.dp)); Text(moduleState, fontSize = 12.sp, color = Muted) }
+                            xiaoAiConflict?.takeIf { it.termCode == current.termCode }?.let { conflict ->
+                                Spacer(Modifier.height(12.dp))
+                                TextButton("重新绑定小爱课表", { rebindPrompt = conflict },
+                                    modifier = Modifier.fillMaxWidth(), enabled = !busy)
+                            }
                         }
                         Spacer(Modifier.height(12.dp))
                         Text("如学校要求验证码，请先在学校网页完成验证。也可从信息查询 → 课表查询导出当前学期全部周次 XLS，再手动导入。", fontSize = 13.sp, color = Muted)
@@ -485,6 +496,24 @@ fun App(platform: PlatformActions, today: LocalDate = LocalDate.now(Shanghai)) {
                 Spacer(Modifier.height(8.dp))
             }
         }
+    WindowDialog(show = rebindPrompt != null && rebindPrompt == xiaoAiConflict,
+        title = "重新绑定小爱课表", onDismissRequest = { rebindPrompt = null }) {
+        rebindPrompt?.let { conflict ->
+            Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("小爱中已有同名课表 ${conflict.name}。绑定后，岐黄课表会用当前学期的课程和作息更新它。")
+                TextButton("绑定并继续同步", {
+                    rebindPrompt = null
+                    platform.resolveXiaoAiConflict(conflict, false)
+                }, modifier = Modifier.fillMaxWidth())
+                TextButton("保留旧表并新建", {
+                    rebindPrompt = null
+                    platform.resolveXiaoAiConflict(conflict, true)
+                }, modifier = Modifier.fillMaxWidth())
+                TextButton("取消", { rebindPrompt = null }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
     WindowDialog(show = pickingTerm, title = "选择学期", onDismissRequest = { pickingTerm = false }) {
         Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             terms.forEach { term ->

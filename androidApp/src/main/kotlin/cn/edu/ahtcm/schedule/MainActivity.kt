@@ -104,6 +104,10 @@ class MainActivity : ComponentActivity() {
             override val moduleSupported = BuildConfig.APPLICATION_ID == "com.yuzakikokuban.ahucm"
             override val moduleActivation = (application as ScheduleApplication).moduleActivation
             override val moduleStatus = model.moduleStatus
+            override val xiaoAiConflict = model.xiaoAiConflict
+            override fun resolveXiaoAiConflict(conflict: XiaoAiConflict, createBeside: Boolean) {
+                model.resolveXiaoAiConflict(conflict, createBeside)
+            }
             override fun manageXiaoAi(snapshot: ScheduleSnapshot) { model.enableModule() }
             override fun onScheduleSynchronized(snapshot: ScheduleSnapshot): List<String> {
                 TodayWidgetUpdates.request(this@MainActivity)
@@ -137,13 +141,17 @@ internal fun moduleEnableFailureText(error: Exception): String = when (error.mes
 /** Keep pending background work distinct from success and from an unavailable host adapter. */
 internal fun moduleStatusText(state: String?, phase: String?, message: String?): String = when {
     message == "background_host_unavailable" -> "小爱后台通道尚未就绪，请检查模块状态或重启小爱进程"
+    message == "host_authorization_unavailable" || message == "host_authorization_rejected" ->
+        "小爱鉴权失败，请检查小米账号登录状态"
     message == "queued_after_current" -> "最新课表已排队，当前任务完成后立即后台更新"
     else -> when (state) {
     "applied" -> "小爱课表已更新并核验"
     "failed" -> when (message) {
         "course_write_not_persisted" -> "小爱未保存课程，请重新点击「开启小爱课表自动管理」"
         "server_readback_mismatch" -> "小爱读回内容不一致，请重新点击「开启小爱课表自动管理」"
-        "managed_table_identity_changed" -> "小爱中已存在同名课表，请在小爱课程表中删除后重试"
+        "unowned_table_name_collision" -> "小爱里已有同名课表，请选择「重新绑定小爱课表」，或将旧表改名后重试"
+        "managed_table_identity_changed" -> "小爱课表的绑定与同名课表不一致，请将同名表改名后重试"
+        "rebind_target_changed" -> "小爱课表已变化，请重新开启自动管理并核对目标课表"
         else -> "小爱更新失败，请检查小爱账号与模块状态"
     }
     // Pending jobs are repaired on the next host claim. Never recommend stopping
@@ -174,6 +182,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
     val foreground = MutableStateFlow(false)
     val selections = MutableStateFlow<FileSelection?>(null)
     val feedback = MutableStateFlow<IntegrationFeedback?>(null)
+    val xiaoAiConflict = MutableStateFlow<XiaoAiConflict?>(null)
     val moduleStatus = MutableStateFlow("小爱模块已连接，开启自动管理后同步当前学期课表")
     private val authPrefs = application.getSharedPreferences("auth-state",0)
     private val prefs = application.getSharedPreferences("integrations", 0)
@@ -198,7 +207,11 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         check(authPrefs.edit().putString("source","password").commit())
         browserSessions.clear()
     }
-    fun selectAccount(account: String) = TodayWidgetUpdates.accountChanged(context) { storage.select(account) }
+    fun selectAccount(account: String) = TodayWidgetUpdates.accountChanged(context) {
+        val previous = storage.activeAccountKey
+        storage.select(account)
+        if (storage.activeAccountKey != previous) xiaoAiConflict.value = null
+    }
     fun restoreWebSession(): Boolean = school.withSession {
         if (authPrefs.getString("source",null)=="password") return@withSession false
         val session = browserSessions.load() ?: return@withSession false
@@ -233,6 +246,7 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         prefs.edit().putBoolean("$kind:$owner",false).apply()
         if (kind=="calendar") report("已停止自动更新日历，已有课程保留")
         else io.launch {
+            xiaoAiConflict.value = null
             try {
                 val status = context.contentResolver.call(syncUri,"status",null,null)
                 var queued = status
@@ -283,6 +297,30 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
             }
         } catch (e: Exception) { report(moduleEnableFailureText(e),true) }
     } }
+    fun resolveXiaoAiConflict(conflict: XiaoAiConflict, createBeside: Boolean) { io.launch {
+        try {
+            check((context as ScheduleApplication).moduleActivation.value) { "module_not_active" }
+            school.withSession {
+                val owner = requireNotNull(storage.activeAccountKey)
+                val snapshot = requireNotNull(storage.schedule.snapshot())
+                check(snapshot.termCode == storage.academicCalendar.availableTerms()?.currentCode &&
+                    snapshot.termCode == conflict.termCode &&
+                    XiaoAiExport.payload(snapshot, owner).revision == conflict.revision &&
+                    xiaoAiConflict.value == conflict) { "rebind_target_changed" }
+                val reply = requireNotNull(context.contentResolver.call(syncUri, "rebind", null, Bundle().apply {
+                    putString("owner", owner)
+                    putString("termCode", conflict.termCode)
+                    putString("revision", conflict.revision)
+                    putString("candidateId", conflict.tableId)
+                    putString("updatedAt", conflict.observedAt)
+                    putBoolean("createBeside", createBeside)
+                }))
+                prefs.edit().putBoolean("module:$owner", true).apply()
+                showModuleState(reply)
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { report("无法确认同名课表，请重新开启小爱自动管理后再试", true) }
+    } }
     fun syncIntegrations(snapshot: ScheduleSnapshot): List<String> {
         val owner = storage.activeAccountKey ?: return emptyList()
         val errors = mutableListOf<String>()
@@ -305,10 +343,20 @@ class ImportViewModel(application: Application) : AndroidViewModel(application) 
         val expected = XiaoAiExport.payload(snapshot,owner).revision
         val reply = context.contentResolver.call(syncUri,"status",null,Bundle().apply { putString("owner",owner);putString("termCode",snapshot.termCode) }) ?: return@withSession
         if(reply.getString("owner")==owner && reply.getString("termCode")==snapshot.termCode && reply.getString("revision")==expected) showModuleState(reply)
-        else moduleStatus.value="当前课表有新版本，等待更新到小爱"
+        else {
+            xiaoAiConflict.value = null
+            moduleStatus.value = "当前课表有新版本，等待更新到小爱"
+        }
     }
     private fun showModuleState(reply: Bundle) {
-        moduleStatus.value = moduleStatusText(reply.getString("state"), reply.getString("phase"), reply.getString("message"))
+        val message = reply.getString("message")
+        val candidate = reply.getString("candidateId").orEmpty()
+        val termCode = reply.getString("termCode").orEmpty()
+        xiaoAiConflict.value = if (message == "unowned_table_name_collision" && candidate.isNotEmpty()) {
+            XiaoAiConflict("AHUCM-${reply.getString("owner").orEmpty().take(16)}-$termCode", candidate, termCode,
+                reply.getString("revision").orEmpty(), reply.getString("updatedAt").orEmpty())
+        } else null
+        moduleStatus.value = moduleStatusText(reply.getString("state"), reply.getString("phase"), message)
     }
     fun read(uri: Uri?) {
         val token = sequence.incrementAndGet()

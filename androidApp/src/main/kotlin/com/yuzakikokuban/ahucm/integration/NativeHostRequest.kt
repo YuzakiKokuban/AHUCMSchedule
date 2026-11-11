@@ -42,7 +42,9 @@ internal class NativeHostRequest(loader: ClassLoader) {
                 connection.doOutput = true
                 connection.outputStream.use { it.write(data.toString().toByteArray(Charsets.UTF_8)) }
             }
-            check(connection.responseCode in 200..299) { "host_http_rejected" }
+            val status = connection.responseCode
+            check(status != 401 && status != 403) { "host_authorization_rejected" }
+            check(status in 200..299) { "host_http_rejected" }
             return connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(8192)

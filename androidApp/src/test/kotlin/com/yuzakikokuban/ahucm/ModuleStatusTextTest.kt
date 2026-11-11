@@ -28,7 +28,7 @@ class ModuleStatusTextTest {
     }
 
     @Test fun occupiedManagedNameExplainsHowToRecover() {
-        assertEquals("小爱中已存在同名课表，请在小爱课程表中删除后重试", moduleStatusText("failed", "accepted", "managed_table_identity_changed"))
+        assertEquals("小爱课表的绑定与同名课表不一致，请将同名表改名后重试", moduleStatusText("failed", "accepted", "managed_table_identity_changed"))
     }
 
     @Test fun unknownFailureKeepsTheExistingMessage() {

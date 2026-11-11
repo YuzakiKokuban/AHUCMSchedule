@@ -64,7 +64,7 @@ internal fun AdaptiveAppScaffold(
     status: String, topBar: @Composable () -> Unit,
     content: @Composable (PaddingValues) -> Unit
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
         val layout = appLayout(maxWidth.value, maxHeight.value, desktop, LocalDensity.current.fontScale)
         CompositionLocalProvider(LocalAppLayout provides layout) {
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
